@@ -31,12 +31,12 @@ in
     '';
     shellAliases = {
       ".." = "cd ..";
-      #add = "git add .";
-      #push = "git push";
-      #pull = "git pull";
-      #m = "git switch main";
-      #cc = "claude --dangerously-skip-permissions";
-      #co = "codex --full-auto";
+      add = "git add .";
+      push = "git push";
+      pull = "git pull";
+      m = "git switch main";
+      cc = "claude --dangerously-skip-permissions";
+      co = "codex --full-auto";
     };
   };
 
