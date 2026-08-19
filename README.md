@@ -34,13 +34,13 @@ Running the switch builds:
 
 - Clone repo as normal
 - Create untracked .local files directly into home directory
-- Create ~/.gitconfig.local
+- Create `~/.gitconfig.local`
 ```sh
 [user]
     name = Your Work Name
     email = your_work_email@company.com
 ```
-- Create ~/.zshrc.local
+- Create `~/.zshrc.local`
 ```sh
 # Work-specific environment variables and aliases
 export CORPORATE_PROXY="http://proxy.company.internal:8080"
@@ -48,6 +48,17 @@ alias workvpn="openvpn --config ~/work.ovpn"
 ```
 Running git status inside your dotfiles folder will ignore these .local files entirely . You can freely pull shared updates using git pull without facing merge conflicts or leaking work data .
 
+## Why It Won't Disrupt Anything
+
+- Missing Files Are Safely Ignored:
+
+In `.zshrc`, the guard condition `[[ -f ~/.zshrc.local ]]` checks if the file exists first. If you do not have `.zshrc.local` on your personal machine, the shell skips it silently without errors.
+In `.gitconfig`, the `[include]` directive is designed by Git to ignore missing target files automatically.
+
+- Your Day-to-Day Workflow Stays Identical:
+
+You continue staging, committing, and pushing exactly as you do now (`git add .`, `git commit`, `git push`).
+The added `.gitignore` rules only ensure that any future `.local` files remain private to the machine where they were created .
 
 
 
