@@ -30,6 +30,27 @@ Running the switch builds:
 - Intel Mac: change one line.
   In `configuration.nix`, set `nixpkgs.hostPlatform = "x86_64-darwin";` (the comment right there tells you the same thing).
 
+## Employer provided machines ONLY
+
+- Clone repo as normal
+- Create untracked .local files directly into home directory
+- Create ~/.gitconfig.local
+```sh
+[user]
+    name = Your Work Name
+    email = your_work_email@company.com
+```
+- Create ~/.zshrc.local
+```sh
+# Work-specific environment variables and aliases
+export CORPORATE_PROXY="http://proxy.company.internal:8080"
+alias workvpn="openvpn --config ~/work.ovpn"
+```
+Running git status inside your dotfiles folder will ignore these .local files entirely . You can freely pull shared updates using git pull without facing merge conflicts or leaking work data .
+
+
+
+
 ## Fresh-machine setup
 
 On a brand new Mac, from a bare clone of this repo:
