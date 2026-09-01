@@ -37,6 +37,11 @@ Look for this line and update if your macOS username isn't `john`:
 user = "john";
 ```
 
+And this line, if you want a different machine name (bootstrap will also prompt you for it):
+```nix
+hostName = "mac";
+```
+
 Also check `configuration-darwin.nix` for:
 - **Homebrew packages:** Edit the `brews` array to add/remove CLI tools
 - **Homebrew casks:** Edit the `casks` array to add/remove GUI apps
@@ -66,8 +71,13 @@ Also check `configuration-darwin.nix` for:
 3. **Checks and fixes username**
    - Compares the `user = "john"` in `flake.nix` with your actual macOS username
    - Offers to update it automatically if they don't match
-   
-4. **Runs the first build**
+
+4. **Prompts for the machine name**
+   - Shows the current machine name and the `hostName = "mac"` value in `flake.nix`
+   - Press Enter to keep the configured name, or type a new one to rewrite that line
+   - nix-darwin applies it to `HostName`, `LocalHostName`, and `ComputerName` during the switch
+
+5. **Runs the first build**
    - Executes `darwin-rebuild switch` to apply your configuration
    - Installs packages, configures system settings, creates symlinks
    - This takes 5-15 minutes depending on your internet and machine
@@ -164,7 +174,12 @@ Look for:
 user = "john";
 ```
 
-Update it to match your actual Linux username:
+And the machine name, if you want to change it (bootstrap will also prompt you for it):
+```nix
+hostName = "mac";
+```
+
+Update the user to match your actual Linux username:
 
 ```bash
 whoami
@@ -214,8 +229,13 @@ Add or remove packages as needed (one per line).
 4. **Checks and fixes username**
    - Compares the `user = "john"` in `flake.nix` with your actual Linux username
    - Offers to update it automatically if they don't match
-   
-5. **Runs the first build**
+
+5. **Prompts for the machine name**
+   - Shows the current hostname and the `hostName = "mac"` value in `flake.nix`
+   - Press Enter to keep the configured name, or type a new one to rewrite that line
+   - Applies it with `sudo hostnamectl set-hostname` (home-manager is user-level and can't set the hostname)
+
+6. **Runs the first build**
    - Executes `home-manager switch --flake ~/.dotfiles#omarchy`
    - Installs all Nix packages to your user profile
    - Creates symlinks to config directories (nvim, wezterm, etc.)

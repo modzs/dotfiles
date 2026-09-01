@@ -52,7 +52,49 @@ else
   echo "    flake.nix already matches \"$REAL_USER\", nothing to do."
 fi
 
-echo "==> Step 4: first build and switch"
+echo "==> Step 4: personalize the machine name"
+if [[ "$OS" == "darwin" ]]; then
+  CURRENT_NAME="$(scutil --get ComputerName 2>/dev/null || hostname -s)"
+else
+  CURRENT_NAME="$(hostname -s)"
+fi
+FLAKE_HOSTNAME="$(sed -nE 's/^[[:space:]]*hostName = "([^"]+)";.*/\1/p' "$DIR/flake.nix" | head -n1)"
+if [ -z "$FLAKE_HOSTNAME" ]; then
+  echo "    Could not find the single \"hostName = \" line in flake.nix."
+  echo "    Edit flake.nix yourself before continuing."
+  exit 1
+fi
+echo "    This machine is currently named \"$CURRENT_NAME\"."
+echo "    flake.nix is configured for \"$FLAKE_HOSTNAME\"."
+read -r -p "    Machine name [$FLAKE_HOSTNAME]: " NEW_HOSTNAME || true
+NEW_HOSTNAME="${NEW_HOSTNAME:-$FLAKE_HOSTNAME}"
+if ! [[ "$NEW_HOSTNAME" =~ ^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?$ ]]; then
+  echo "    \"$NEW_HOSTNAME\" is not a valid machine name."
+  echo "    Use 1-63 letters, digits, or hyphens, starting and ending with a letter or digit."
+  exit 1
+fi
+if [ "$NEW_HOSTNAME" != "$FLAKE_HOSTNAME" ]; then
+  if [[ "$OS" == "darwin" ]]; then
+    sed -i '' -E "s/^([[:space:]]*hostName = \")[^\"]+(\";.*)/\1${NEW_HOSTNAME}\2/" "$DIR/flake.nix"
+  else
+    sed -i -E "s/^([[:space:]]*hostName = \")[^\"]+(\";.*)/\1${NEW_HOSTNAME}\2/" "$DIR/flake.nix"
+  fi
+  echo "    Updated flake.nix. Review the change with: git diff flake.nix"
+else
+  echo "    Keeping \"$FLAKE_HOSTNAME\"."
+fi
+
+if [[ "$OS" == "darwin" ]]; then
+  # nix-darwin applies networking.hostName during the switch in step 5.
+  echo "    macOS: nix-darwin will apply this during the switch."
+elif [ "$NEW_HOSTNAME" != "$CURRENT_NAME" ]; then
+  # home-manager is user-level only and cannot set the system hostname,
+  # so apply it directly here.
+  echo "    Linux: setting the system hostname (needs sudo)..."
+  sudo hostnamectl set-hostname "$NEW_HOSTNAME"
+fi
+
+echo "==> Step 5: first build and switch"
 NIX_BIN="$(command -v nix)"
 
 if [[ "$OS" == "darwin" ]]; then

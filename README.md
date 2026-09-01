@@ -84,12 +84,13 @@ Before you run it: review "Make it yours" below and adjust settings as needed.
 ./bootstrap.sh
 ```
 
-`bootstrap.sh` does four things, in order:
+`bootstrap.sh` does five things, in order:
 
 1. Installs Determinate Nix, if it isn't already installed.
 2. Symlinks this repo to `~/.dotfiles`.
 3. Checks the `user` configured in `flake.nix` against your actual username, and offers to fix it if they differ.
-4. Runs the first build and switch:
+4. Prompts for the machine name and writes it to the `hostName` line in `flake.nix`. Press Enter to keep the configured name.
+5. Runs the first build and switch:
    - On macOS: runs `darwin-rebuild switch` via nix-darwin
    - On Omarchy/Linux: runs `home-manager switch` via home-manager
 
@@ -129,6 +130,11 @@ This repo is mine. If you clone it, review these before you run `bootstrap.sh`:
 - **Username**: `bootstrap.sh` detects your username and offers to set it, OR manually change the `user = "john"` line in `flake.nix`.
   Everything else (`configuration-darwin.nix`, `home.nix`, home directory paths) is threaded from that one variable.
 
+- **Machine name**: `bootstrap.sh` prompts for it, OR manually change the `hostName = "mac";` line in `flake.nix`.
+  On macOS, nix-darwin applies it to `HostName`, `LocalHostName`, and `ComputerName` on every switch.
+  On Omarchy/Linux, `bootstrap.sh` applies it with `hostnamectl` (home-manager is user-level and can't set it).
+  The flake output names (`mac`, `omarchy`) are stable config identifiers and don't follow the machine name.
+
 - **macOS setup:** If you're on macOS and want to customize Homebrew packages or system settings:
   - Edit `configuration-darwin.nix`: the `brews` and `casks` arrays
   - Edit `configuration-darwin.nix`: `system.defaults` for macOS settings (dark mode, key repeat, etc.)
@@ -158,7 +164,7 @@ Read through these arrays before running `bootstrap.sh` for the first time, and 
 - `flake.nix` - the entry point. Declares both the `mac` (macOS) and `omarchy` (Arch Linux) configurations.
 - `configuration-darwin.nix` - macOS-only, system-level config: system defaults, Homebrew.
 - `home.nix` - user-level config (both platforms): shell, packages, prompt, and symlinks. Platform-aware via `isDarwin` flag.
-- `bootstrap.sh` - one-time setup: installs Nix, symlinks the repo, checks username, and runs the first build.
+- `bootstrap.sh` - one-time setup: installs Nix, symlinks the repo, checks username, sets the machine name, and runs the first build.
 - `rebuild.sh` - applies changes after the first switch. Platform-aware: uses `darwin-rebuild` on macOS, `home-manager` on Linux.
 - `home/` - the actual config files that get symlinked into place.
 

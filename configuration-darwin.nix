@@ -1,8 +1,15 @@
-{ user, ... }:
+{ user, hostName, ... }:
 
 {
   # Determinate already manages the Nix daemon, so nix-darwin shouldn't.
   nix.enable = false;
+
+  # Machine name. hostName/localHostName must be a DNS label; computerName is
+  # the friendly name shown in Finder and Sharing. bootstrap.sh keeps them in
+  # sync by rewriting the single `hostName` line in flake.nix.
+  networking.hostName = hostName;
+  networking.localHostName = hostName;
+  networking.computerName = hostName;
 
   nixpkgs.config.allowUnfree = true;
   nixpkgs.hostPlatform = "aarch64-darwin"; # use x86_64-darwin for Intel CPU
