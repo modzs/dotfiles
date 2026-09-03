@@ -48,6 +48,7 @@
     casks = [
       "wezterm"
       "claude-code"
+      "ghostty"
     ];
   };
 }
