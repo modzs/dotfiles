@@ -1,7 +1,7 @@
 # Contributing
 
 Thanks for taking an interest in these dotfiles.
-This repo is public so you can read it, learn from it, and fork it freely, but it is Kun's personal setup and does not accept pull requests or feature requests.
+This repo is public so you can read it, learn from it, and fork it freely, but it is the owner's personal setup and does not accept pull requests or feature requests.
 If you want to adapt something, please fork the repo and make it yours.
 If you found a bug, please open a bug report issue instead of sending a patch.
 Pull requests are auto-closed here so the repo can stay personal and predictable.
@@ -14,7 +14,7 @@ Please use the bug report template and include:
 - What happened.
 - What you expected to happen.
 - Steps to reproduce the problem.
-- Your environment, including macOS, Linux, or WSL and any relevant Nix or home-manager generation details.
+- Your environment: your macOS version, whether the Mac is Apple Silicon or Intel, and any relevant Nix, nix-darwin, or home-manager generation details.
 
 ## Feature Ideas
 

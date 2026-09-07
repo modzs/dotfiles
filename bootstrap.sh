@@ -1,18 +1,9 @@
 #!/usr/bin/env bash
-# Bootstrap from nothing to a configured dotfiles setup.
+# Bootstrap from nothing to a configured dotfiles setup on macOS.
 # Run this once. After it finishes, use ./rebuild.sh for every later change.
 set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
-
-# Detect OS
-if [[ "$OSTYPE" == "darwin"* ]]; then
-  OS="darwin"
-  FLAKE_HOST="mac"
-else
-  OS="linux"
-  FLAKE_HOST="omarchy"
-fi
 
 echo "==> Step 1: Determinate Nix"
 if command -v nix >/dev/null 2>&1; then
@@ -38,11 +29,7 @@ elif [ "$FLAKE_USER" != "$REAL_USER" ]; then
   echo "    flake.nix is configured for user \"$FLAKE_USER\", but you are \"$REAL_USER\"."
   read -r -p "    Rewrite flake.nix's \"user = \" line to \"$REAL_USER\"? [y/N] " REPLY
   if [ "$REPLY" = "y" ] || [ "$REPLY" = "Y" ]; then
-    if [[ "$OS" == "darwin" ]]; then
-      sed -i '' -E "s/^([[:space:]]*user = \")[^\"]+(\";.*)/\1${REAL_USER}\2/" "$DIR/flake.nix"
-    else
-      sed -i -E "s/^([[:space:]]*user = \")[^\"]+(\";.*)/\1${REAL_USER}\2/" "$DIR/flake.nix"
-    fi
+    sed -i '' -E "s/^([[:space:]]*user = \")[^\"]+(\";.*)/\1${REAL_USER}\2/" "$DIR/flake.nix"
     echo "    Updated. Review the change with: git diff flake.nix"
   else
     echo "    Skipped. Edit the single \"user = \" line in flake.nix yourself before continuing."
@@ -53,11 +40,7 @@ else
 fi
 
 echo "==> Step 4: personalize the machine name"
-if [[ "$OS" == "darwin" ]]; then
-  CURRENT_NAME="$(scutil --get ComputerName 2>/dev/null || hostname -s)"
-else
-  CURRENT_NAME="$(hostname -s)"
-fi
+CURRENT_NAME="$(scutil --get ComputerName 2>/dev/null || hostname -s)"
 FLAKE_HOSTNAME="$(sed -nE 's/^[[:space:]]*hostName = "([^"]+)";.*/\1/p' "$DIR/flake.nix" | head -n1)"
 if [ -z "$FLAKE_HOSTNAME" ]; then
   echo "    Could not find the single \"hostName = \" line in flake.nix."
@@ -74,36 +57,17 @@ if ! [[ "$NEW_HOSTNAME" =~ ^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?$ ]]; the
   exit 1
 fi
 if [ "$NEW_HOSTNAME" != "$FLAKE_HOSTNAME" ]; then
-  if [[ "$OS" == "darwin" ]]; then
-    sed -i '' -E "s/^([[:space:]]*hostName = \")[^\"]+(\";.*)/\1${NEW_HOSTNAME}\2/" "$DIR/flake.nix"
-  else
-    sed -i -E "s/^([[:space:]]*hostName = \")[^\"]+(\";.*)/\1${NEW_HOSTNAME}\2/" "$DIR/flake.nix"
-  fi
+  sed -i '' -E "s/^([[:space:]]*hostName = \")[^\"]+(\";.*)/\1${NEW_HOSTNAME}\2/" "$DIR/flake.nix"
   echo "    Updated flake.nix. Review the change with: git diff flake.nix"
 else
   echo "    Keeping \"$FLAKE_HOSTNAME\"."
 fi
-
-if [[ "$OS" == "darwin" ]]; then
-  # nix-darwin applies networking.hostName during the switch in step 5.
-  echo "    macOS: nix-darwin will apply this during the switch."
-elif [ "$NEW_HOSTNAME" != "$CURRENT_NAME" ]; then
-  # home-manager is user-level only and cannot set the system hostname,
-  # so apply it directly here.
-  echo "    Linux: setting the system hostname (needs sudo)..."
-  sudo hostnamectl set-hostname "$NEW_HOSTNAME"
-fi
+# nix-darwin applies networking.hostName during the switch in step 5.
+echo "    nix-darwin will apply this during the switch."
 
 echo "==> Step 5: first build and switch"
 NIX_BIN="$(command -v nix)"
-
-if [[ "$OS" == "darwin" ]]; then
-  echo "    Using darwin-rebuild for macOS..."
-  sudo "$NIX_BIN" run github:nix-darwin/nix-darwin/nix-darwin-26.05#darwin-rebuild -- \
-    switch --flake ~/.dotfiles#mac
-else
-  echo "    Using home-manager for Linux..."
-  "$NIX_BIN" run home-manager/release-26.05 -- switch --flake ~/.dotfiles#omarchy
-fi
+sudo "$NIX_BIN" run github:nix-darwin/nix-darwin/nix-darwin-26.05#darwin-rebuild -- \
+  switch --flake ~/.dotfiles#mac
 
 echo "==> Done. Use ./rebuild.sh for future changes."
