@@ -13,7 +13,8 @@ If you find a bug, please open a GitHub Issue using the bug report template.
 
 Running the switch builds:
 
-- Nix user packages (ripgrep, fd, fzf, jq, lazygit, Neovim, Hack Nerd Font)
+- Nix user packages (ripgrep, fd, fzf, jq, lazygit, Neovim, Node, Hack Nerd Font)
+- Agent CLIs from npm (`gh-axi`, `chrome-devtools-axi`, `lavish-axi`, `tasks-axi`, `quota-axi`), pinned and installed into `~/.npm-global`
 - Shell (zsh, aliases, starship prompt)
 - Editor (Neovim config with the rose-pine moon theme)
 - Terminal (WezTerm config with the rose-pine moon theme and dimmed unfocused windows)
@@ -27,6 +28,8 @@ Running the switch builds:
 - macOS. This repo is macOS-only; it has no Linux or WSL configuration.
 - Apple Silicon Mac, by default.
 - Intel Mac: change one line in `configuration-darwin.nix`, set `nixpkgs.hostPlatform = "x86_64-darwin";`
+- Network access on the first switch, and on any switch that changes a pinned npm CLI version. See "Agent toolchain" below.
+- `no-mistakes` is the one tool this repo does not install for you. It is a one-time manual step, documented under "Agent toolchain".
 
 ## Employer provided machines ONLY
 
@@ -146,12 +149,16 @@ Read through these arrays before running `bootstrap.sh` for the first time, and 
   If you clone this repo, you'd silently inherit my agent instructions - edit or delete `home/AGENTS.md` if you don't want that.
 - The `cc` and `co` shell aliases in `home.nix` are high-agency shortcuts: `claude --dangerously-skip-permissions` and `codex --full-auto`.
   They're convenient for me, but know what they do before you use them.
+- `home/.claude/settings.json` registers `SessionStart` hooks that run `gh-axi`, `chrome-devtools-axi`, and `lavish-axi` on every Claude Code session.
+  Those three tools generate that block themselves via `<tool> setup hooks`; it is committed here so a fresh machine gets it without running anything.
+  Delete the `hooks` key if you don't want them.
+- Home Manager prepends `~/.npm-global/bin` and `~/.no-mistakes/bin` to `PATH`, so anything you install there shadows a same-named Homebrew binary.
 
 ## Repo tour
 
 - `flake.nix` - the entry point. Declares the single `mac` nix-darwin configuration.
 - `configuration-darwin.nix` - system-level config: macOS defaults, Homebrew.
-- `home.nix` - user-level config: shell, packages, prompt, and symlinks.
+- `home.nix` - user-level config: shell, packages, prompt, symlinks, and the pinned npm agent CLIs.
 - `bootstrap.sh` - one-time setup: installs Nix, symlinks the repo, checks username, sets the machine name, and runs the first build.
 - `rebuild.sh` - applies changes after the first switch, with `darwin-rebuild switch`.
 - `home/` - the actual config files that get symlinked into place.
@@ -161,6 +168,74 @@ Read through these arrays before running `bootstrap.sh` for the first time, and 
 The files under `home/` are the real files - editing them here is editing your live config, no rebuild needed to see the change in your editor.
 `home.nix` uses `mkOutOfStoreSymlink` to point paths like `~/.config/nvim` straight at `home/.config/nvim` in this repo, so the two never drift out of sync.
 You only run `./rebuild.sh` when you change something that isn't just a symlinked file, like a package list.
+
+## Agent toolchain
+
+Six command-line agent tools live on this machine: Node plus five npm CLIs (`gh-axi`,
+`chrome-devtools-axi`, `lavish-axi`, `tasks-axi`, `quota-axi`), and `no-mistakes`.
+All of them are declared here, because `homebrew.onActivation.cleanup = "zap"` deletes any
+Homebrew package this repo doesn't list, and Node installed through Homebrew would take the
+npm globals underneath it down with it.
+
+**Node comes from nixpkgs, not Homebrew.** `home.nix` lists `nodejs_26` in `home.packages`,
+so the version is pinned by `flake.lock` and the zap can never reach it. That choice has a
+second effect worth knowing about: a Nix-provided node's default `npm prefix -g` is its own
+read-only store path, so this config sets `NPM_CONFIG_PREFIX=~/.npm-global` instead. Global
+npm packages therefore land in your home directory rather than in `/opt/homebrew`, which is
+what puts them permanently out of the zap's reach. Nothing about `cleanup = "zap"` is
+weakened; the toolchain simply stops living in the tree it manages.
+
+**The five npm CLIs are pinned.** They aren't in nixpkgs, so a Home Manager activation step in
+`home.nix` installs each one at an exact version into `~/.npm-global`. The versions are the
+`npmGlobals` attribute set in `home.nix`; to move one, edit the version and run `./rebuild.sh`.
+Pinning is deliberate. Unpinned, a routine rebuild could silently change a tool's behaviour
+underneath you; pinned, the version only moves when you change this file and commit it.
+
+The step is version-guarded, so a rebuild with nothing to change reads five `package.json`
+files and makes no network calls. If an install does fail, for example on a machine with no
+network, it prints a warning and the switch continues rather than aborting.
+
+**`no-mistakes` is a documented manual step, not a declared one.** Its installer always fetches
+the latest release rather than a version you choose, and it restarts the `no-mistakes` daemon
+as its last act. Neither belongs in an unattended `darwin-rebuild switch`, so this repo does
+not run it. What the repo does do is put `~/.no-mistakes/bin` on `PATH`, which is where the
+installer's binary lives, so once installed it survives every rebuild untouched. Install it
+once per machine:
+
+```sh
+NO_MISTAKES_LINK_DIR="$HOME/.no-mistakes/bin" \
+  curl -fsSL https://raw.githubusercontent.com/kunchenguid/no-mistakes/main/docs/install.sh | sh
+```
+
+Setting `NO_MISTAKES_LINK_DIR` to the install directory makes the installer skip its symlink
+step, which is the only part that wanted `sudo`. `PATH` already covers it.
+
+### `NODE_EXTRA_CA_CERTS`
+
+`home.nix` sets `NODE_EXTRA_CA_CERTS=/etc/ssl/certs/ca-certificates.crt`, the CA bundle
+nix-darwin already manages through `security.pki.installCACerts`.
+
+The Nix node doesn't need this: its OpenSSL finds that bundle on its own. It is here for every
+*other* Node on the machine. A Homebrew-built node links Homebrew's `openssl@3` and looks for
+roots in `/opt/homebrew/etc/openssl@3`, which on this machine is empty, so every HTTPS request
+from such a node fails with `UNABLE_TO_GET_ISSUER_CERT_LOCALLY` and no `npm install` can
+succeed. One declared variable removes that whole class of failure for any Node that turns up,
+whether from a cask, a project toolchain, or a later `brew install node`.
+
+### Migrating a machine that already had Homebrew Node
+
+If Node and the npm CLIs were installed through Homebrew before this change, the first
+`./rebuild.sh` zaps Homebrew's `node` and installs everything into `~/.npm-global`. Because
+Home Manager prepends `~/.npm-global/bin` to `PATH`, the new copies win immediately and
+nothing is broken. The old files are simply left behind. Clear them out once:
+
+```sh
+rm -rf /opt/homebrew/lib/node_modules/{gh-axi,chrome-devtools-axi,lavish-axi,tasks-axi,quota-axi}
+rm -f /opt/homebrew/bin/{gh-axi,chrome-devtools-axi,lavish-axi,tasks-axi,quota-axi,no-mistakes}
+```
+
+The last of those is a `no-mistakes` symlink that used to live inside Homebrew's tree.
+`~/.no-mistakes/bin` on `PATH` replaces it.
 
 ## Optional Pi configuration
 

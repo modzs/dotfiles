@@ -1,7 +1,27 @@
-{ config, pkgs, user, ... }:
+{ config, lib, pkgs, user, ... }:
 
 let
   dotfiles = "${config.home.homeDirectory}/.dotfiles";
+
+  # npm's global prefix. The Nix node's own prefix is a read-only store path, so
+  # `npm install -g` needs somewhere writable. Putting it here - and NOT in
+  # /opt/homebrew, which is where a Homebrew node would put it - is what keeps
+  # these CLIs out of reach of `homebrew.onActivation.cleanup = "zap"`.
+  npmPrefix = "${config.home.homeDirectory}/.npm-global";
+
+  # Agent CLIs published on npm but absent from nixpkgs. Pinned on purpose:
+  # unpinned, a routine `./rebuild.sh` could silently change tool versions.
+  # Bump a version here, then run ./rebuild.sh.
+  npmGlobals = {
+    "gh-axi" = "0.1.35";
+    "chrome-devtools-axi" = "0.1.34";
+    "lavish-axi" = "0.1.67";
+    "tasks-axi" = "0.2.5";
+    "quota-axi" = "0.1.40";
+  };
+  npmSpecs = lib.concatStringsSep " " (
+    lib.mapAttrsToList (name: version: "${name}@${version}") npmGlobals
+  );
 in
 
 {
@@ -16,11 +36,62 @@ in
     jq        # json on the command line
     lazygit
     neovim
+    # Node itself, so it is declared and pinned by flake.lock rather than left
+    # to Homebrew, where `cleanup = "zap"` would delete it on the next switch.
+    nodejs_26
     # the font everything renders in
     nerd-fonts.hack
   ];
   fonts.fontconfig.enable = true;
   home.sessionVariables.EDITOR = "nvim";
+
+  # Node resolves TLS roots through OpenSSL's default store. The Nix node finds
+  # /etc/ssl/certs/ca-certificates.crt on its own, but a Homebrew-linked node
+  # looks in /opt/homebrew/etc/openssl@3, which is empty on this machine - so
+  # every HTTPS request from such a node dies with UNABLE_TO_GET_ISSUER_CERT_LOCALLY,
+  # npm installs included. Pointing every Node at the bundle nix-darwin already
+  # manages (security.pki.installCACerts) removes that whole failure mode.
+  home.sessionVariables.NODE_EXTRA_CA_CERTS = "/etc/ssl/certs/ca-certificates.crt";
+
+  home.sessionVariables.NPM_CONFIG_PREFIX = npmPrefix;
+  home.sessionPath = [
+    "${npmPrefix}/bin"
+    # `no-mistakes` ships its own binary here; see README for the one-time install.
+    "${config.home.homeDirectory}/.no-mistakes/bin"
+  ];
+
+  # The npm CLIs above are not in nixpkgs, so Home Manager installs them into the
+  # writable prefix instead. Version-guarded, so a rebuild with nothing to change
+  # touches the network zero times, and a failed install warns instead of aborting
+  # the switch.
+  home.activation.agentNpmCLIs = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+    nodeBin="${pkgs.nodejs_26}/bin"
+
+    for spec in ${npmSpecs}; do
+      name="''${spec%@*}"
+      want="''${spec##*@}"
+      manifest="${npmPrefix}/lib/node_modules/$name/package.json"
+
+      have=""
+      if [ -r "$manifest" ]; then
+        have="$("$nodeBin/node" -p "require('$manifest').version" 2>/dev/null || true)"
+      fi
+      if [ "$have" = "$want" ]; then
+        continue
+      fi
+
+      if [ -n "''${DRY_RUN+x}" ]; then
+        echo "would install $spec into ${npmPrefix}"
+        continue
+      fi
+
+      echo "installing $spec into ${npmPrefix}"
+      if ! PATH="$nodeBin:$PATH" NPM_CONFIG_PREFIX="${npmPrefix}" \
+           "$nodeBin/npm" install --global --no-fund --no-audit "$spec"; then
+        echo "warning: could not install $spec (offline?). Keeping ''${have:-nothing}." >&2
+      fi
+    done
+  '';
 
   programs.zsh = {
     enable = true;
