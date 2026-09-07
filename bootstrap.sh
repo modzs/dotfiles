@@ -113,24 +113,12 @@ else
 fi
 read -r -p "    Git name [$GIT_NAME]: " NEW_GIT_NAME || true
 NEW_GIT_NAME="${NEW_GIT_NAME:-$GIT_NAME}"
-# Nix is installed and flake.nix is already rewritten by now, so a typo here
-# must never abort the run. An empty answer is a deliberate skip: home.nix's
-# include handles an absent ~/.gitconfig.local. Anything else only has to look
-# like an address - git accepts any string, and rejecting an unusual but real
-# one would be worse than the typo this catches.
-while :; do
-  read -r -p "    Git email [$GIT_EMAIL]: " NEW_GIT_EMAIL || true
-  NEW_GIT_EMAIL="${NEW_GIT_EMAIL:-$GIT_EMAIL}"
-  [ -n "$NEW_GIT_EMAIL" ] || break
-  if [[ "$NEW_GIT_EMAIL" =~ ^[^[:space:]@]+@[^[:space:]@]+$ ]]; then
-    break
-  fi
-  echo "    \"$NEW_GIT_EMAIL\" does not look like an email address (name@host)."
-  echo "    Type it again, or press Enter to leave the email unset."
-  # Never re-offer a default the check just rejected: with no input left that
-  # would loop forever, and with a terminal it would re-propose the typo.
-  GIT_EMAIL=""
-done
+# Whatever is typed is taken as given. Nix is installed and flake.nix is already
+# rewritten by now, so no answer may abort the run, and git validates neither
+# key itself. An empty answer is a deliberate skip: home.nix's include handles
+# an absent ~/.gitconfig.local.
+read -r -p "    Git email [$GIT_EMAIL]: " NEW_GIT_EMAIL || true
+NEW_GIT_EMAIL="${NEW_GIT_EMAIL:-$GIT_EMAIL}"
 # Each key is written on its own: a name typed without an email is still the
 # user's answer, and git names the missing half itself at commit time. A write
 # git refuses - an unparsable file, or a duplicated [user] section it cannot
@@ -162,15 +150,17 @@ if [ -n "$UNWRITABLE" ]; then
   echo "      git config --file ~/.gitconfig.local user.email \"you@example.com\""
 fi
 
-# git reads ~/.gitconfig ahead of the Home Manager config that carries the
-# ~/.gitconfig.local include, and each key is shadowed on its own - a stale
-# [user] section holding only an email yields a mixed identity that is harder to
-# spot than a plainly wrong one. That file is the user's, outside this repo and
-# often carrying unrelated settings, so name it and stop; never edit it. $HOME
-# rather than the current directory, so a repository's own config is not
-# mistaken for a machine-wide one.
-report_shadowed_identity_key() {
+# Another file on the machine can set the same key - each one independently, so
+# a stale [user] section holding only an email yields a mixed identity that is
+# harder to spot than a plainly wrong one. Say only what git itself reports: the
+# value it resolves and the file it came from. Nothing here models git's config
+# layering, and nothing here edits a file this repo does not own. Only keys that
+# ~/.gitconfig.local actually holds are compared - with nothing of our own to
+# contradict, there is no disagreement to report. $HOME rather than the current
+# directory, so a repository's own config is not mistaken for a machine-wide one.
+report_competing_identity_key() {
   local key=$1 own=$2 resolved origin value
+  [ -n "$own" ] || return 0
   resolved="$(git -C "$HOME" config --show-origin --get "$key" 2>/dev/null || true)"
   case "$resolved" in
     file:*) : ;;
@@ -181,9 +171,9 @@ report_shadowed_identity_key() {
   origin="${origin#file:}"
   [ "$origin" != "$GITCONFIG_LOCAL" ] || return 0
   [ "$value" != "$own" ] || return 0
-  echo "    Heads up: git resolves $key to \"$value\" from $origin."
-  echo "    That file outranks the ~/.gitconfig.local include, so it keeps winning."
-  echo "    This script will not touch it. Drop the setting there yourself with:"
+  echo "    Heads up: git currently resolves $key to \"$value\" from $origin,"
+  echo "    while ~/.gitconfig.local holds \"$own\". This script leaves $origin alone."
+  echo "    To let the identity above apply, drop that setting yourself with:"
   echo "      git config --file \"$origin\" --unset $key"
 }
 
@@ -209,8 +199,8 @@ if [ -z "$GITCONFIG_LOCAL_ERROR" ] && [ -z "$UNWRITABLE" ]; then
     echo "      git config --file ~/.gitconfig.local user.email \"you@example.com\""
   fi
 fi
-report_shadowed_identity_key user.name "$FINAL_GIT_NAME"
-report_shadowed_identity_key user.email "$FINAL_GIT_EMAIL"
+report_competing_identity_key user.name "$FINAL_GIT_NAME"
+report_competing_identity_key user.email "$FINAL_GIT_EMAIL"
 
 echo "==> Step 6: first build and switch"
 # darwin-rebuild doesn't exist yet on a fresh machine, so run it straight from

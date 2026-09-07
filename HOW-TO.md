@@ -133,7 +133,7 @@ git config --show-origin --get user.email
 
 **Expected output:** your own name and email, coming from `~/.gitconfig.local`. Set them there - never in this repo - with the commands in [Setting the Git Identity](#setting-the-git-identity) below.
 
-If the origin is some other file, that file outranks the include and is what you actually commit as. `~/.gitconfig` is the usual culprit on a machine that was used before this config, and it shadows `user.name` and `user.email` independently, so you can end up with a name from one file and an email from another. Remove the setting from the winning file - `git config --file ~/.gitconfig --unset user.email` - rather than fighting it from `~/.gitconfig.local`.
+If the origin is some other file, that file is what you actually commit as. `~/.gitconfig` is the usual one on a machine that was used before this config, and `user.name` and `user.email` are resolved independently, so you can end up with a name from one file and an email from another. Remove the setting from the file git names - `git config --file ~/.gitconfig --unset user.email` - rather than fighting it from `~/.gitconfig.local`.
 
 ---
 

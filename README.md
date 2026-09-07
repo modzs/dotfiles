@@ -54,7 +54,7 @@ Both hooks are already wired into `home.nix`, so creating the files is all you n
 - `programs.zsh.initContent` sources `~/.zshrc.local` if it exists.
 - `programs.git.includes` pulls in `~/.gitconfig.local`.
 
-**Which git identity wins:** `home.nix` sets no name or email of its own - it only pulls in `~/.gitconfig.local` through `programs.git.includes`, so that file is where your identity belongs, whether `bootstrap.sh` wrote it for you or you wrote a work one there yourself. One caveat on a machine that was used before: git reads `~/.gitconfig` ahead of the Home Manager config carrying the include, so a leftover `[user]` section there still wins, key by key. `git config --show-origin --get user.email` names the file that is actually deciding; `bootstrap.sh` points this out but never edits `~/.gitconfig` for you.
+**Which git identity wins:** `home.nix` sets no name or email of its own - it only pulls in `~/.gitconfig.local` through `programs.git.includes`, so that file is where your identity belongs, whether `bootstrap.sh` wrote it for you or you wrote a work one there yourself. One caveat on a machine that was used before: another config file can set the same key, and `user.name` and `user.email` are decided one at a time. `git config --show-origin --get user.email` names the file git is actually reading it from. `bootstrap.sh` points out any such disagreement with what it wrote, and never edits that file for you.
 
 ## Why It Won't Disrupt Anything
 
