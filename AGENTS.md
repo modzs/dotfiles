@@ -25,6 +25,11 @@ Deliberate decisions in this repo - do NOT silently revert them:
   cache is reliable and `./rebuild.sh` does not fall back to compiling from source. It lags the
   release branch by design; do not "modernize" it back to the generic branch.
   `tests/nixpkgs-channel.test.sh` guards this by asking channels.nixos.org and cache.nixos.org.
+- The `model` in `home/.claude/settings.json` is the repo owner's deliberate default for every
+  Claude Code session on the machine. Keep the short alias form (a dated model id rots); do not
+  drop the key to fall back to the account default.
+- `skipDangerousModePermissionPrompt: true` in the same file is intentional: this machine runs
+  agents unattended, and the startup prompt would block them. Do not remove it as a "hardening" fix.
 - Never commit `.no-mistakes/` validation evidence to this public repo. `.no-mistakes/` is gitignored; if a validation pipeline stages evidence into a branch, drop it before merging.
 
 ## Maintaining this file

@@ -79,3 +79,20 @@ jobs:
 
       - name: Run the test suite
         run: ./tests/run.sh --strict
+
+  # AGENTS.md pins these scripts to bash 3.2 and BSD sed, and the test suite
+  # only exercises the paths it happens to reach. shellcheck catches the rest -
+  # unquoted expansions, dead assignments, misused test operators - so the
+  # repo's shell rules are enforced rather than remembered. It needs no Nix and
+  # no Pi, so it runs on a cheap Linux runner and reports long before the two
+  # macOS jobs finish. It does not model bash 3.2, so a clean run here is not
+  # proof of 3.2 compatibility; that stays a review concern.
+  lint:
+    name: Shell lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # shellcheck is preinstalled on the ubuntu-latest runner image.
+      - name: Run shellcheck
+        run: shellcheck bootstrap.sh rebuild.sh lib/*.sh tests/*.sh
