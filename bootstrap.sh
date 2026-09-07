@@ -82,7 +82,23 @@ fi
 echo "    nix-darwin will apply this during the switch."
 
 echo "==> Step 5: first build and switch"
+# darwin-rebuild doesn't exist yet on a fresh machine, so run it straight from
+# the flake this once. After this, rebuild.sh works normally.
+# This fetches the darwin-rebuild tool from the nix-darwin-26.05 release branch,
+# not the exact flake.lock revision. The system config it applies is still
+# pinned by this repo's flake.lock.
+# sudo resets PATH to a secure default that excludes /nix/.../bin, so a freshly
+# installed `nix` would not be found under sudo even though it is on PATH here.
+# Resolve the absolute path first and invoke that instead - do not collapse this
+# to `sudo nix run`.
 NIX_BIN="$(command -v nix)"
+# If nix is not on this shell's PATH yet, the script stops right here with no
+# message: the failing command substitution aborts under set -euo pipefail
+# before the switch below ever runs. Open a new terminal (Determinate adds nix
+# to new shells' PATH) and re-run ./bootstrap.sh.
+# "mac" is the flake output name, a stable config identifier. It is deliberately
+# separate from the machine name set in step 4; if you rename it, change it in
+# flake.nix and rebuild.sh too.
 sudo "$NIX_BIN" run github:nix-darwin/nix-darwin/nix-darwin-26.05#darwin-rebuild -- \
   switch --flake ~/.dotfiles#mac
 
