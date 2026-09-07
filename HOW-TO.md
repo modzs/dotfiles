@@ -363,18 +363,16 @@ the pinned version back, which is the point of pinning. Change `home.nix` instea
 
 If you're on a work machine and need separate config:
 
-Create a `.gitconfig.local` file in your home directory:
+Set the work identity in `~/.gitconfig.local`:
 
 ```bash
-cat > ~/.gitconfig.local <<'EOF'
-[user]
-    name = Work Name
-    email = work@company.com
-EOF
+git config --file ~/.gitconfig.local user.name "Work Name"
+git config --file ~/.gitconfig.local user.email "work@company.com"
 ```
 
 **What it does:**
-- Creates a local git config file for work identity
+- Sets the work identity in the local git config file, creating it if it isn't there
+- Changes only those two keys, so anything else you keep in that file survives - unlike a `cat >` heredoc, which would replace the whole file
 - `programs.git.includes` in `home.nix` pulls it in, and `home.nix` sets no identity of its own; `git config --show-origin --get user.email` names the file git actually reads the identity from
 - Not tracked by git (stays private to your machine)
 

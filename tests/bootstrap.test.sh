@@ -18,8 +18,8 @@
 #   malformed email taken as typed instead of aborting, a file holding only one
 #   of the two keys, no default offered from the wider git config, an existing
 #   ~/.gitconfig.local keeping its unrelated contents, a ~/.gitconfig setting a
-#   key the new identity also sets, and an unparsable ~/.gitconfig.local that
-#   must not abort the run.
+#   key the new identity also sets, an unparsable ~/.gitconfig.local that must
+#   not abort the run, and a write git refuses for one key but not the other.
 set -u
 
 # shellcheck source=tests/lib.sh
@@ -191,7 +191,7 @@ test_link_when_repo_already_is_dotfiles() {
 }
 
 # The other half of H1: a pre-existing, unrelated ~/.dotfiles used to be
-# accepted silently, and bootstrap died at step 5 - after installing Nix and
+# accepted silently, and bootstrap died at step 6 - after installing Nix and
 # taking the user's sudo password - with "could not find a flake.nix file".
 test_link_refuses_unrelated_directory() {
   local sb status
@@ -537,12 +537,42 @@ test_identity_unparsable_gitconfig_local_still_switches() {
     "bootstrap never reached the switch with an unparsable ~/.gitconfig.local"
   assert_contains "$(sandbox_out "$sb")" "git cannot parse ~/.gitconfig.local" \
     "bootstrap did not say the file could not be parsed"
-  assert_contains "$(sandbox_out "$sb")" "git refused to write user.name and user.email to ~/.gitconfig.local" \
-    "bootstrap did not report the writes it could not make"
+  assert_contains "$(sandbox_out "$sb")" "git refused to write user.name to ~/.gitconfig.local" \
+    "bootstrap did not report the name it could not write"
+  assert_contains "$(sandbox_out "$sb")" "git refused to write user.email to ~/.gitconfig.local" \
+    "bootstrap did not report the email it could not write"
   assert_not_contains "$(sandbox_out "$sb")" "holds no user.name and no user.email" \
     "bootstrap claimed an unparsable file simply holds nothing"
 
   pass "identity: an unparsable ~/.gitconfig.local warns and still reaches the switch"
+}
+
+# One key git refuses says nothing about the other: a duplicated [user] section
+# holding two emails lets the name through and blocks the email. The run must
+# report git's own reason and prescribe a remedy only for the key that failed -
+# telling the user to re-set a key that just succeeded is noise at best.
+test_identity_partial_write_failure_is_reported_per_key() {
+  local sb status
+  sb=$(make_sandbox)
+  printf '[user]\n\temail = one@example.com\n[user]\n\temail = two@example.com\n' \
+    >"$sb/home/.gitconfig.local"
+  status=$(run_bootstrap "$sb" repo "$(identity_input '' 'Ada Lovelace' 'ada@example.com')")
+
+  [ "$status" = 0 ] || fail "a refused write aborted bootstrap: $(sandbox_out "$sb")"
+  assert_contains "$(sandbox_calls "$sb")" "switch --flake $sb/home/.dotfiles#mac" \
+    "bootstrap never reached the switch after a refused write"
+  [ "$(gitconfig_local_value "$sb" user.name)" = "Ada Lovelace" ] \
+    || fail "the name git accepted was not written"
+  assert_contains "$(sandbox_out "$sb")" "Wrote user.name to ~/.gitconfig.local." \
+    "bootstrap did not report the key it did write"
+  assert_contains "$(sandbox_out "$sb")" "git refused to write user.email to ~/.gitconfig.local" \
+    "bootstrap did not report the key it could not write"
+  assert_contains "$(sandbox_out "$sb")" "cannot overwrite multiple values" \
+    "bootstrap swallowed git's reason for refusing the write"
+  assert_not_contains "$(sandbox_out "$sb")" "git config --file ~/.gitconfig.local user.name" \
+    "bootstrap told the user to re-set a key that had just been written"
+
+  pass "identity: a write refused for one key leaves the other reported as written"
 }
 
 # The prompt default comes from ~/.gitconfig.local alone. Anything wider would
@@ -601,6 +631,7 @@ test_identity_name_without_email_is_kept
 test_identity_half_set_file_is_reported_key_by_key
 test_identity_competing_gitconfig_is_reported
 test_identity_unparsable_gitconfig_local_still_switches
+test_identity_partial_write_failure_is_reported_per_key
 test_identity_offers_no_default_from_global_config
 
 test_summary

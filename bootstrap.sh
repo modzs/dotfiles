@@ -88,6 +88,12 @@ echo "==> Step 5: personalize the git identity"
 # anything else already in the file - work-machine overrides, say - untouched.
 GITCONFIG_LOCAL="$HOME/.gitconfig.local"
 
+# git's complaints run to several lines. Indent every one of them, so a quoted
+# error stays visibly part of the step rather than breaking out of its margin.
+echo_git_output() {
+  printf '%s\n' "$1" | sed 's/^/      /'
+}
+
 # One wording for the file's contents, printed before the prompts and again
 # after the writes, so the two can never disagree. Each key is reported on its
 # own: half an identity rendered as "name <email>" reads as a whole one.
@@ -147,7 +153,7 @@ echo "    This step writes a git name and email to ~/.gitconfig.local, which"
 echo "    lives outside this repo and is never committed."
 if [ -n "$GITCONFIG_LOCAL_ERROR" ]; then
   echo "    git cannot parse ~/.gitconfig.local, so nothing can be read from it:"
-  echo "      $GITCONFIG_LOCAL_ERROR"
+  echo_git_output "$GITCONFIG_LOCAL_ERROR"
   echo "    Fix that file by hand; step 6 below runs either way."
 else
   print_gitconfig_local_state "$GIT_NAME" "$GIT_EMAIL"
@@ -160,36 +166,30 @@ NEW_GIT_NAME="${NEW_GIT_NAME:-$GIT_NAME}"
 # an absent ~/.gitconfig.local.
 read -r -p "    Git email [$GIT_EMAIL]: " NEW_GIT_EMAIL || true
 NEW_GIT_EMAIL="${NEW_GIT_EMAIL:-$GIT_EMAIL}"
-# Each key is written on its own: a name typed without an email is still the
-# user's answer, and git names the missing half itself at commit time. A write
-# git refuses - an unparsable file, or a duplicated [user] section it cannot
-# collapse - is reported and survived, never allowed to kill the run one step
-# short of the switch.
+# Each key is written and reported on its own: a name typed without an email is
+# still the user's answer, and one key git refuses says nothing about the other.
+# A write git refuses - an unparsable file, or a duplicated [user] section it
+# cannot collapse - carries git's own reason and is survived, never allowed to
+# kill the run one step short of the switch.
 WROTE=""
 UNWRITABLE=""
-if [ -n "$NEW_GIT_NAME" ]; then
-  if git config --file "$GITCONFIG_LOCAL" user.name "$NEW_GIT_NAME" 2>/dev/null; then
-    WROTE="user.name"
-  else
-    UNWRITABLE="user.name"
+write_identity_key() {
+  local key=$1 value=$2 err status=0
+  [ -n "$value" ] || return 0
+  err="$(git config --file "$GITCONFIG_LOCAL" "$key" "$value" 2>&1 >/dev/null)" || status=$?
+  if [ "$status" = 0 ]; then
+    WROTE=yes
+    echo "    Wrote $key to ~/.gitconfig.local."
+    return 0
   fi
-fi
-if [ -n "$NEW_GIT_EMAIL" ]; then
-  if git config --file "$GITCONFIG_LOCAL" user.email "$NEW_GIT_EMAIL" 2>/dev/null; then
-    WROTE="${WROTE:+$WROTE and }user.email"
-  else
-    UNWRITABLE="${UNWRITABLE:+$UNWRITABLE and }user.email"
-  fi
-fi
-if [ -n "$WROTE" ]; then
-  echo "    Wrote $WROTE to ~/.gitconfig.local."
-fi
-if [ -n "$UNWRITABLE" ]; then
-  echo "    git refused to write $UNWRITABLE to ~/.gitconfig.local."
-  echo "    Repair that file by hand, then set the keys yourself:"
-  echo "      git config --file ~/.gitconfig.local user.name \"Your Name\""
-  echo "      git config --file ~/.gitconfig.local user.email \"you@example.com\""
-fi
+  UNWRITABLE=yes
+  echo "    git refused to write $key to ~/.gitconfig.local:"
+  [ -z "$err" ] || echo_git_output "$err"
+  echo "    Repair that file by hand, then set that key with:"
+  echo "      git config --file ~/.gitconfig.local $key \"$value\""
+}
+write_identity_key user.name "$NEW_GIT_NAME"
+write_identity_key user.email "$NEW_GIT_EMAIL"
 # Report the file, not the keystrokes. A prompt answered with Enter leaves
 # whatever was already there, so only a fresh read says what the file holds now.
 FINAL_GIT_NAME="$(git config --file "$GITCONFIG_LOCAL" --get user.name 2>/dev/null || true)"

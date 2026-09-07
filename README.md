@@ -159,6 +159,23 @@ Read through these arrays before running `bootstrap.sh` for the first time, and 
   Delete the `hooks` key if you don't want them.
 - Home Manager prepends `~/.npm-global/bin` and `~/.no-mistakes/bin` to `PATH`, so anything you install there shadows a same-named Homebrew binary.
 
+### Migrating a machine that already had the identity in `home.nix`
+
+`home.nix` used to set `user.name` and `user.email` directly, and the old instructions told you
+to edit them there. It no longer sets either: the identity lives in `~/.gitconfig.local`, which
+`programs.git.includes` pulls in. A machine set up under the old instructions has the identity
+only in the `~/.config/git/config` that Home Manager generates, and no `~/.gitconfig.local` -
+so the next `./rebuild.sh` regenerates that file with an include pointing at nothing, and git
+falls back to guessing an author from your account and hostname. Write the file once, before
+that rebuild:
+
+```sh
+git config --file ~/.gitconfig.local user.name "Your Name"
+git config --file ~/.gitconfig.local user.email "you@example.com"
+```
+
+`git config --show-origin --get user.email` afterwards names the file git reads it from.
+
 ## Repo tour
 
 - `flake.nix` - the entry point. Declares the single `mac` nix-darwin configuration.
