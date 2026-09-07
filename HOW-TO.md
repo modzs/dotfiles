@@ -77,7 +77,7 @@ Also check `configuration-darwin.nix` for:
    - nix-darwin applies it to `HostName`, `LocalHostName`, and `ComputerName` during the switch
 
 5. **Prompts for the git identity**
-   - Shows what `~/.gitconfig.local` currently commits as, or that it holds no identity yet
+   - Shows which of `user.name` and `user.email` `~/.gitconfig.local` currently holds
    - Press Enter to keep what that file already says, or type a name and an email to write them
    - The identity goes to `~/.gitconfig.local`, outside this repo, never into the tracked config
 
@@ -133,7 +133,7 @@ git config --show-origin --get user.email
 
 **Expected output:** your own name and email, coming from `~/.gitconfig.local`. Set them there - never in this repo - with the commands in [Setting the Git Identity](#setting-the-git-identity) below.
 
-If the origin is some other file, that file is what you actually commit as. `~/.gitconfig` is the usual one on a machine that was used before this config, and `user.name` and `user.email` are resolved independently, so you can end up with a name from one file and an email from another. Remove the setting from the file git names - `git config --file ~/.gitconfig --unset user.email` - rather than fighting it from `~/.gitconfig.local`.
+If the origin is some other file, that file is what you actually commit as. `~/.gitconfig` is the usual one on a machine that was used before this config, and `user.name` and `user.email` are resolved independently, so you can end up with a name from one file and an email from another. Remove the setting from the file git names - `git config --file ~/.gitconfig --unset user.email` - so `~/.gitconfig.local` is the only place either key is set.
 
 ---
 

@@ -15,10 +15,11 @@
 #   keeping the configured default;
 # - the git identity prompt: a new identity written to ~/.gitconfig.local, empty
 #   input keeping the identity already there, a name typed without an email, a
-#   malformed email taken as typed instead of aborting, no default offered from
-#   the wider git config, an existing ~/.gitconfig.local keeping its unrelated
-#   contents, a ~/.gitconfig setting a key the new identity also sets, and an
-#   unparsable ~/.gitconfig.local that must not abort the run.
+#   malformed email taken as typed instead of aborting, a file holding only one
+#   of the two keys, no default offered from the wider git config, an existing
+#   ~/.gitconfig.local keeping its unrelated contents, a ~/.gitconfig setting a
+#   key the new identity also sets, and an unparsable ~/.gitconfig.local that
+#   must not abort the run.
 set -u
 
 # shellcheck source=tests/lib.sh
@@ -366,8 +367,7 @@ test_machine_name_empty_keeps_default() {
 # --- git identity (written to ~/.gitconfig.local, never to the repo) ----------
 
 # Feed the whole prompt sequence of a run whose username already matches:
-# machine name, git name, then one line per git email prompt (the email prompt
-# re-asks after a malformed answer, so it can consume more than one).
+# machine name, git name, git email - each read exactly once, in that order.
 identity_input() {
   local line
   for line in "$@"; do printf '%s\n' "$line"; done
@@ -403,9 +403,9 @@ test_identity_empty_keeps_existing() {
   status=$(run_bootstrap "$sb" repo "$(identity_input '' '' '')")
 
   [ "$status" = 0 ] || fail "bootstrap failed on an empty git identity: $(sandbox_out "$sb")"
-  assert_contains "$(sandbox_out "$sb")" "currently commits as \"Grace Hopper <grace@example.com>\"" \
+  assert_contains "$(sandbox_out "$sb")" "holds user.name \"Grace Hopper\" and user.email \"grace@example.com\"" \
     "bootstrap did not report the existing identity before prompting"
-  assert_contains "$(sandbox_out "$sb")" "~/.gitconfig.local now commits as \"Grace Hopper <grace@example.com>\"" \
+  assert_contains "$(sandbox_out "$sb")" "holds user.name \"Grace Hopper\" and user.email \"grace@example.com\"" \
     "bootstrap did not keep the existing identity on empty input"
   [ "$(gitconfig_local_value "$sb" user.name)" = "Grace Hopper" ] \
     || fail "empty input changed the existing git name"
@@ -475,6 +475,26 @@ test_identity_name_without_email_is_kept() {
 }
 
 
+# Half an identity must never be rendered as a whole one: a file holding only an
+# email once printed `commits as " <work@corp.example>"` before the prompts and
+# `holds user.email ... and no user.name` after them, in the same run.
+test_identity_half_set_file_is_reported_key_by_key() {
+  local sb status
+  sb=$(make_sandbox)
+  git config --file "$sb/home/.gitconfig.local" user.email "work@corp.example"
+  status=$(run_bootstrap "$sb" repo "$(identity_input '' '' '')")
+
+  [ "$status" = 0 ] || fail "bootstrap failed on a half-set identity: $(sandbox_out "$sb")"
+  assert_not_contains "$(sandbox_out "$sb")" "<work@corp.example>" \
+    "bootstrap rendered a missing name inside a full identity string"
+  assert_contains "$(sandbox_out "$sb")" "holds user.email \"work@corp.example\" and no user.name" \
+    "bootstrap did not name the half ~/.gitconfig.local is missing"
+  [ -z "$(gitconfig_local_value "$sb" user.name)" ] \
+    || fail "empty input invented a git name"
+
+  pass "identity: a file holding one key is reported key by key, not as an identity"
+}
+
 # Another config file can set the same key, one key at a time - a [user] section
 # holding only an email yields a name from one file and an email from another.
 # The run must name that file per key and leave it alone.
@@ -519,8 +539,8 @@ test_identity_unparsable_gitconfig_local_still_switches() {
     "bootstrap did not say the file could not be parsed"
   assert_contains "$(sandbox_out "$sb")" "git refused to write user.name and user.email to ~/.gitconfig.local" \
     "bootstrap did not report the writes it could not make"
-  assert_not_contains "$(sandbox_out "$sb")" "sets no git identity yet" \
-    "bootstrap claimed an unparsable file simply sets no identity"
+  assert_not_contains "$(sandbox_out "$sb")" "holds no user.name and no user.email" \
+    "bootstrap claimed an unparsable file simply holds nothing"
 
   pass "identity: an unparsable ~/.gitconfig.local warns and still reaches the switch"
 }
@@ -539,7 +559,7 @@ GITCONFIG
   status=$(run_bootstrap "$sb" repo "$(identity_input '' '' '')")
 
   [ "$status" = 0 ] || fail "bootstrap failed with no ~/.gitconfig.local: $(sandbox_out "$sb")"
-  assert_contains "$(sandbox_out "$sb")" "~/.gitconfig.local sets no git identity yet" \
+  assert_contains "$(sandbox_out "$sb")" "~/.gitconfig.local holds no user.name and no user.email" \
     "bootstrap claimed an identity that ~/.gitconfig.local does not hold"
   assert_not_contains "$(sandbox_out "$sb")" "currently commits as" \
     "bootstrap proposed an identity from outside ~/.gitconfig.local"
@@ -547,8 +567,8 @@ GITCONFIG
   # Reporting a conflict here would advise unsetting the only identity present.
   assert_not_contains "$(sandbox_out "$sb")" "Previous Owner" \
     "bootstrap reported a conflict with an identity ~/.gitconfig.local does not hold"
-  assert_not_contains "$(sandbox_out "$sb")" "--unset" \
-    "bootstrap told the user to unset the only git identity on the machine"
+  assert_not_contains "$(sandbox_out "$sb")" "Heads up" \
+    "bootstrap reported a conflict when ~/.gitconfig.local holds nothing to conflict with"
   [ -z "$(gitconfig_local_value "$sb" user.name)" ] \
     || fail "empty input copied another identity into ~/.gitconfig.local"
   [ -z "$(gitconfig_local_value "$sb" user.email)" ] \
@@ -576,6 +596,7 @@ test_identity_empty_keeps_existing
 test_identity_preserves_unrelated_gitconfig_local
 test_identity_malformed_email_is_taken_as_typed
 test_identity_name_without_email_is_kept
+test_identity_half_set_file_is_reported_key_by_key
 test_identity_competing_gitconfig_is_reported
 test_identity_unparsable_gitconfig_local_still_switches
 test_identity_offers_no_default_from_global_config

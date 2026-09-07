@@ -54,7 +54,7 @@ Both hooks are already wired into `home.nix`, so creating the files is all you n
 - `programs.zsh.initContent` sources `~/.zshrc.local` if it exists.
 - `programs.git.includes` pulls in `~/.gitconfig.local`.
 
-**Which git identity wins:** `home.nix` sets no name or email of its own - it only pulls in `~/.gitconfig.local` through `programs.git.includes`, so that file is where your identity belongs, whether `bootstrap.sh` wrote it for you or you wrote a work one there yourself. One caveat on a machine that was used before: another config file can set the same key, and `user.name` and `user.email` are decided one at a time. `git config --show-origin --get user.email` names the file git is actually reading it from. `bootstrap.sh` points out any such disagreement with what it wrote, and never edits that file for you.
+**Where your git identity lives:** `home.nix` sets no name or email of its own - it only pulls in `~/.gitconfig.local` through `programs.git.includes`, so that file is where your identity belongs, whether `bootstrap.sh` wrote it for you or you wrote a work one there yourself. One caveat on a machine that was used before: another config file can set the same key, and `user.name` and `user.email` are decided one at a time. `git config --show-origin --get user.email` names the file git is actually reading it from. `bootstrap.sh` points out any such disagreement with what it wrote, and never edits that file for you.
 
 ## Why It Won't Disrupt Anything
 
@@ -92,7 +92,7 @@ Before you run it: review "Make it yours" below and adjust settings as needed.
 2. Symlinks this repo to `~/.dotfiles`.
 3. Checks the `user` configured in `flake.nix` against your actual username, and offers to fix it if they differ.
 4. Prompts for the machine name and writes it to the `hostName` line in `flake.nix`. Press Enter to keep the configured name.
-5. Prompts for the git name and email you commit with and writes them to `~/.gitconfig.local`, outside this repo. The only default offered is what that file already says, so press Enter to keep it - on a machine without it, the prompt starts empty.
+5. Prompts for a git name and email and writes them to `~/.gitconfig.local`, outside this repo. The only default offered is what that file already says, so press Enter to keep it - on a machine without it, the prompt starts empty.
 6. Runs the first build and switch with `darwin-rebuild switch --flake ~/.dotfiles#mac`.
 
 Before any of that it checks `~/.dotfiles`. If something is already there that
@@ -133,8 +133,8 @@ This repo is mine. If you clone it, review these before you run `bootstrap.sh`:
   nix-darwin applies it to `HostName`, `LocalHostName`, and `ComputerName` on every switch.
   The flake output name (`mac`) is a stable config identifier and doesn't follow the machine name.
 
-- **Git identity**: `bootstrap.sh` prompts for the name and email your commits carry and writes them to `~/.gitconfig.local`.
-  Nothing in this repo sets an identity, so until that file exists git has none to use.
+- **Git identity**: `bootstrap.sh` prompts for a git name and email and writes them to `~/.gitconfig.local`.
+  Nothing in this repo sets an identity.
 
 - **Homebrew packages and system settings:** edit `configuration-darwin.nix`:
   - the `brews` and `casks` arrays
