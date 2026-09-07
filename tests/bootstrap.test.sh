@@ -12,7 +12,10 @@
 #   real file - for both bootstrap.sh and rebuild.sh;
 # - the personalization matrix: username match, mismatch answered y, mismatch
 #   answered n, a valid machine name, an invalid machine name, and empty input
-#   keeping the configured default.
+#   keeping the configured default;
+# - the git identity prompt: a new identity written to ~/.gitconfig.local, empty
+#   input keeping the identity already there, an invalid email, and an existing
+#   ~/.gitconfig.local keeping its unrelated contents.
 set -u
 
 # shellcheck source=tests/lib.sh
@@ -352,6 +355,92 @@ test_machine_name_empty_keeps_default() {
   pass "personalize: empty input keeps the machine name configured in flake.nix"
 }
 
+# --- git identity (written to ~/.gitconfig.local, never to the repo) ----------
+
+# Feed the whole prompt sequence of a run whose username already matches:
+# machine name, git name, git email.
+identity_input() { printf '%s\n%s\n%s\n' "$1" "$2" "$3"; }
+
+gitconfig_local_value() {
+  git config --file "$1/home/.gitconfig.local" --get "$2" 2>/dev/null || true
+}
+
+test_identity_written_to_gitconfig_local() {
+  local sb status
+  sb=$(make_sandbox)
+  status=$(run_bootstrap "$sb" repo "$(identity_input '' 'Ada Lovelace' 'ada@example.com')")
+
+  [ "$status" = 0 ] || fail "bootstrap failed while setting a git identity: $(sandbox_out "$sb")"
+  [ "$(gitconfig_local_value "$sb" user.name)" = "Ada Lovelace" ] \
+    || fail "the git name was not written to ~/.gitconfig.local"
+  [ "$(gitconfig_local_value "$sb" user.email)" = "ada@example.com" ] \
+    || fail "the git email was not written to ~/.gitconfig.local"
+  # The whole point: the identity must never land in the tracked config.
+  assert_not_contains "$(cat "$sb/repo/home.nix")" "ada@example.com" \
+    "bootstrap wrote the git identity into home.nix"
+
+  pass "identity: a new name and email are written to ~/.gitconfig.local"
+}
+
+test_identity_empty_keeps_existing() {
+  local sb status
+  sb=$(make_sandbox)
+  git config --file "$sb/home/.gitconfig.local" user.name "Grace Hopper"
+  git config --file "$sb/home/.gitconfig.local" user.email "grace@example.com"
+  status=$(run_bootstrap "$sb" repo "$(identity_input '' '' '')")
+
+  [ "$status" = 0 ] || fail "bootstrap failed on an empty git identity: $(sandbox_out "$sb")"
+  assert_contains "$(sandbox_out "$sb")" "currently commits as \"Grace Hopper <grace@example.com>\"" \
+    "bootstrap did not report the existing identity before prompting"
+  assert_contains "$(sandbox_out "$sb")" "Using \"Grace Hopper <grace@example.com>\"" \
+    "bootstrap did not keep the existing identity on empty input"
+  [ "$(gitconfig_local_value "$sb" user.name)" = "Grace Hopper" ] \
+    || fail "empty input changed the existing git name"
+  [ "$(gitconfig_local_value "$sb" user.email)" = "grace@example.com" ] \
+    || fail "empty input changed the existing git email"
+
+  pass "identity: empty input keeps the identity already in ~/.gitconfig.local"
+}
+
+# ~/.gitconfig.local is the documented home for work-machine overrides, so the
+# prompt must set two keys inside it, not rewrite the file.
+test_identity_preserves_unrelated_gitconfig_local() {
+  local sb status
+  sb=$(make_sandbox)
+  git config --file "$sb/home/.gitconfig.local" user.name "Grace Hopper"
+  git config --file "$sb/home/.gitconfig.local" user.email "grace@example.com"
+  git config --file "$sb/home/.gitconfig.local" core.editor "emacs"
+  git config --file "$sb/home/.gitconfig.local" commit.gpgsign true
+  status=$(run_bootstrap "$sb" repo "$(identity_input '' 'Ada Lovelace' 'ada@example.com')")
+
+  [ "$status" = 0 ] || fail "bootstrap failed against an existing ~/.gitconfig.local: $(sandbox_out "$sb")"
+  [ "$(gitconfig_local_value "$sb" user.email)" = "ada@example.com" ] \
+    || fail "the new identity did not reach an existing ~/.gitconfig.local"
+  [ "$(gitconfig_local_value "$sb" core.editor)" = emacs ] \
+    || fail "bootstrap dropped an unrelated setting from ~/.gitconfig.local"
+  [ "$(gitconfig_local_value "$sb" commit.gpgsign)" = true ] \
+    || fail "bootstrap dropped an unrelated setting from ~/.gitconfig.local"
+
+  pass "identity: an existing ~/.gitconfig.local keeps its unrelated settings"
+}
+
+test_identity_invalid_email_aborts() {
+  local sb status
+  sb=$(make_sandbox)
+  status=$(run_bootstrap "$sb" repo "$(identity_input '' 'Ada Lovelace' 'not-an-email')")
+
+  [ "$status" != 0 ] || fail "bootstrap accepted an invalid git email"
+  assert_contains "$(sandbox_out "$sb")" "is not a valid email address" \
+    "bootstrap did not explain why the email was rejected"
+  if [ -e "$sb/home/.gitconfig.local" ]; then
+    fail "bootstrap wrote ~/.gitconfig.local despite an invalid email"
+  fi
+  assert_not_contains "$(sandbox_calls "$sb")" "sudo " \
+    "bootstrap reached sudo with an invalid git email"
+
+  pass "identity: an invalid email aborts before writing ~/.gitconfig.local"
+}
+
 test_link_created_when_absent
 test_link_rerun_is_idempotent
 test_link_replaces_stale_symlink
@@ -366,5 +455,9 @@ test_username_mismatch_declined_aborts
 test_machine_name_valid_is_written
 test_machine_name_invalid_aborts
 test_machine_name_empty_keeps_default
+test_identity_written_to_gitconfig_local
+test_identity_empty_keeps_existing
+test_identity_preserves_unrelated_gitconfig_local
+test_identity_invalid_email_aborts
 
 test_summary

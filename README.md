@@ -54,7 +54,7 @@ Both hooks are already wired into `home.nix`, so creating the files is all you n
 - `programs.zsh.initContent` sources `~/.zshrc.local` if it exists.
 - `programs.git.includes` pulls in `~/.gitconfig.local`.
 
-**Which git identity wins:** Home Manager writes the include *after* the name and email set in `home.nix`, and Git lets the last value win. So on a machine with `~/.gitconfig.local`, the work identity in that file overrides the one in `home.nix`. Without the file, the `home.nix` identity applies - which is why you still need to change it (see the Git identity warning below).
+**Which git identity wins:** `home.nix` sets no name or email of its own - it only pulls in `~/.gitconfig.local` through `programs.git.includes`. So the identity in that file is the identity you commit with, whether `bootstrap.sh` wrote it for you or you wrote a work one there yourself.
 
 ## Why It Won't Disrupt Anything
 
@@ -86,13 +86,14 @@ Before you run it: review "Make it yours" below and adjust settings as needed.
 ./bootstrap.sh
 ```
 
-`bootstrap.sh` does five things, in order:
+`bootstrap.sh` does six things, in order:
 
 1. Installs Determinate Nix, if it isn't already installed.
 2. Symlinks this repo to `~/.dotfiles`.
 3. Checks the `user` configured in `flake.nix` against your actual username, and offers to fix it if they differ.
 4. Prompts for the machine name and writes it to the `hostName` line in `flake.nix`. Press Enter to keep the configured name.
-5. Runs the first build and switch with `darwin-rebuild switch --flake ~/.dotfiles#mac`.
+5. Prompts for the git name and email you commit with and writes them to `~/.gitconfig.local`, outside this repo. Press Enter to keep the identity you already have.
+6. Runs the first build and switch with `darwin-rebuild switch --flake ~/.dotfiles#mac`.
 
 Before any of that it checks `~/.dotfiles`. If something is already there that
 isn't a symlink and isn't this repo, it stops immediately rather than after
@@ -132,6 +133,9 @@ This repo is mine. If you clone it, review these before you run `bootstrap.sh`:
   nix-darwin applies it to `HostName`, `LocalHostName`, and `ComputerName` on every switch.
   The flake output name (`mac`) is a stable config identifier and doesn't follow the machine name.
 
+- **Git identity**: `bootstrap.sh` prompts for the name and email your commits carry and writes them to `~/.gitconfig.local`.
+  Nothing in this repo sets an identity, so until that file exists git has none to use.
+
 - **Homebrew packages and system settings:** edit `configuration-darwin.nix`:
   - the `brews` and `casks` arrays
   - `system.defaults` for macOS settings (dark mode, key repeat, etc.)
@@ -139,10 +143,6 @@ This repo is mine. If you clone it, review these before you run `bootstrap.sh`:
 
 - **CPU architecture:** If you're on Intel Mac, change one line in `configuration-darwin.nix`:
   `nixpkgs.hostPlatform = "x86_64-darwin";`
-
-**Git identity (change this before your first commit):** `home.nix` already sets a concrete git name and email - mine, not yours.
-Until you change it, every commit you make on this machine is attributed to me.
-Edit the `programs.git.settings.user` section in `home.nix` and put your own name and email there.
 
 **Homebrew cleanup warning:** `configuration-darwin.nix` sets `homebrew.onActivation.cleanup = "zap"`.
 This means every switch removes any Homebrew package or cask not listed in the `brews` and `casks` arrays.
@@ -164,7 +164,7 @@ Read through these arrays before running `bootstrap.sh` for the first time, and 
 - `flake.nix` - the entry point. Declares the single `mac` nix-darwin configuration.
 - `configuration-darwin.nix` - system-level config: macOS defaults, Homebrew.
 - `home.nix` - user-level config: shell, packages, prompt, symlinks, and the pinned npm agent CLIs.
-- `bootstrap.sh` - one-time setup: installs Nix, symlinks the repo, checks username, sets the machine name, and runs the first build.
+- `bootstrap.sh` - one-time setup: installs Nix, symlinks the repo, checks username, sets the machine name and git identity, and runs the first build.
 - `rebuild.sh` - applies changes after the first switch, with `darwin-rebuild switch`.
 - `lib/` - shell helpers shared by the setup scripts and the `home.nix` activation.
 - `home/` - the actual config files that get symlinked into place.

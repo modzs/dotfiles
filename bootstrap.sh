@@ -10,7 +10,7 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 
 # Everything below resolves through ~/.dotfiles, so settle that path before
 # anything is installed and before sudo is asked for. Refusing here costs the
-# user nothing; refusing at step 5 would cost them a Nix install and a password.
+# user nothing; refusing at step 6 would cost them a Nix install and a password.
 echo "==> Preflight: ~/.dotfiles"
 # A failing command substitution in an assignment exits under `set -e`, so an
 # unusable ~/.dotfiles stops the script right here.
@@ -78,10 +78,47 @@ if [ "$NEW_HOSTNAME" != "$FLAKE_HOSTNAME" ]; then
 else
   echo "    Keeping \"$FLAKE_HOSTNAME\"."
 fi
-# nix-darwin applies networking.hostName during the switch in step 5.
+# nix-darwin applies networking.hostName during the switch in step 6.
 echo "    nix-darwin will apply this during the switch."
 
-echo "==> Step 5: first build and switch"
+echo "==> Step 5: personalize the git identity"
+# The identity lives in the untracked ~/.gitconfig.local, never in this repo:
+# home.nix sets no name or email, it only pulls that file in through
+# programs.git.includes. Writing the two keys with `git config --file` leaves
+# anything else already in the file - work-machine overrides, say - untouched.
+GITCONFIG_LOCAL="$HOME/.gitconfig.local"
+# Prefer what that file already says; fall back to whatever identity this
+# machine resolves today, so a re-run can be answered with two Enters.
+GIT_NAME="$(git config --file "$GITCONFIG_LOCAL" --get user.name 2>/dev/null || true)"
+GIT_EMAIL="$(git config --file "$GITCONFIG_LOCAL" --get user.email 2>/dev/null || true)"
+[ -n "$GIT_NAME" ] || GIT_NAME="$(git config --global --get user.name 2>/dev/null || true)"
+[ -n "$GIT_EMAIL" ] || GIT_EMAIL="$(git config --global --get user.email 2>/dev/null || true)"
+echo "    Commits from this machine are attributed to this identity."
+echo "    It is written to ~/.gitconfig.local, which is outside this repo and never committed."
+if [ -n "$GIT_NAME" ] || [ -n "$GIT_EMAIL" ]; then
+  echo "    This machine currently commits as \"$GIT_NAME <$GIT_EMAIL>\"."
+else
+  echo "    This machine has no git identity configured yet."
+fi
+read -r -p "    Git name [$GIT_NAME]: " NEW_GIT_NAME || true
+NEW_GIT_NAME="${NEW_GIT_NAME:-$GIT_NAME}"
+read -r -p "    Git email [$GIT_EMAIL]: " NEW_GIT_EMAIL || true
+NEW_GIT_EMAIL="${NEW_GIT_EMAIL:-$GIT_EMAIL}"
+if [ -n "$NEW_GIT_EMAIL" ] && ! [[ "$NEW_GIT_EMAIL" =~ ^[^[:space:]@]+@[^[:space:]@]+$ ]]; then
+  echo "    \"$NEW_GIT_EMAIL\" is not a valid email address."
+  exit 1
+fi
+if [ -n "$NEW_GIT_NAME" ] && [ -n "$NEW_GIT_EMAIL" ]; then
+  git config --file "$GITCONFIG_LOCAL" user.name "$NEW_GIT_NAME"
+  git config --file "$GITCONFIG_LOCAL" user.email "$NEW_GIT_EMAIL"
+  echo "    Using \"$NEW_GIT_NAME <$NEW_GIT_EMAIL>\" from ~/.gitconfig.local."
+else
+  echo "    No git identity set. Git will refuse to commit until you add one:"
+  echo "      git config --file ~/.gitconfig.local user.name \"Your Name\""
+  echo "      git config --file ~/.gitconfig.local user.email \"you@example.com\""
+fi
+
+echo "==> Step 6: first build and switch"
 # darwin-rebuild doesn't exist yet on a fresh machine, so run it straight from
 # the flake this once. After this, rebuild.sh works normally.
 # This fetches the darwin-rebuild tool from the nix-darwin-26.05 release branch,
