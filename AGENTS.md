@@ -14,6 +14,12 @@ Deliberate decisions in this repo - do NOT silently revert them:
   which writes to `~/.claude/settings.json` - a `mkOutOfStoreSymlink` to the tracked
   `home/.claude/settings.json`. Running it dirties the working tree, so the hooks are committed
   instead of regenerated during activation.
+- The `~/.dotfiles` link logic lives once, in `lib/dotfiles-link.sh`, and is sourced by both
+  `bootstrap.sh` and `rebuild.sh`. Do not re-inline `ln -sfn "$DIR" ~/.dotfiles` in either script:
+  that form silently links *into* an existing real `~/.dotfiles` directory and exits 0.
+- Tests live in `tests/` and run with `./tests/run.sh` (`--strict` fails on any skipped check).
+  A check that could not run must report `skip -`, never `ok -`; CI runs the strict form, so a
+  new environment-dependent test needs its dependency added to `.github/workflows/ci.yml`.
 - Never commit `.no-mistakes/` validation evidence to this public repo. `.no-mistakes/` is gitignored; if a validation pipeline stages evidence into a branch, drop it before merging.
 
 ## Maintaining this file

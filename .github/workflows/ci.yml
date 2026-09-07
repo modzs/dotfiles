@@ -1,0 +1,75 @@
+name: CI
+
+# Runs on every pull request, and on main after a merge. Feature branches are
+# covered through their pull request, so a same-repo branch does not build twice.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # The flake's only output is a darwinConfiguration for Apple silicon
+  # (nixpkgs.hostPlatform = "aarch64-darwin"), so this has to be an Apple
+  # silicon macOS runner. Evaluating on Linux could not resolve the nix-darwin
+  # modules, and an Intel runner could not build the closure without a remote
+  # builder. macos-latest has been arm64 since macos-14.
+  build:
+    name: Build the darwin configuration
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install Determinate Nix
+        uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
+
+      - name: Evaluate the flake
+        run: nix flake check
+
+      # `nix flake check` only evaluates, so it would still pass with a
+      # derivation that cannot be built. Building the real system closure is
+      # the gate that catches a renamed nix-darwin or Home Manager option, a
+      # package dropped from nixpkgs, or a broken activation script - the whole
+      # class of breakage that otherwise surfaces on the first ./rebuild.sh.
+      # It never activates anything; `build` is not `switch`.
+      - name: Build the system closure
+        run: nix build --print-build-logs .#darwinConfigurations.mac.system
+
+  # Everything the suite needs is installed here on purpose. A bare macOS
+  # runner has no Pi package and no tmux, so a naive run would skip most of its
+  # checks and still report success - which is exactly the failure this
+  # workflow exists to prevent. --strict turns any remaining skip into a
+  # failure, so CI cannot go green on checks that never ran.
+  test:
+    name: Test suite
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # Matches the nodejs_26 that home.nix installs.
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 26
+
+      - name: Install tmux
+        run: brew install tmux
+
+      # Pinned to the version tests/pi-calm.test.sh names as its TUI proof
+      # target, so an upstream Pi release cannot turn CI red on its own.
+      # --ignore-scripts matches the install command documented in README.md.
+      - name: Install the Pi proof target and TypeScript
+        run: |
+          npm install --prefix "$RUNNER_TEMP/npm" --global --no-fund --no-audit \
+            --ignore-scripts @earendil-works/pi-coding-agent@0.82.0 typescript
+          echo "$RUNNER_TEMP/npm/bin" >>"$GITHUB_PATH"
+          echo "PI_CALM_TEST_PACKAGE_DIR=$RUNNER_TEMP/npm/lib/node_modules/@earendil-works/pi-coding-agent" \
+            >>"$GITHUB_ENV"
+
+      - name: Run the test suite
+        run: ./tests/run.sh --strict
