@@ -79,3 +79,34 @@ jobs:
 
       - name: Run the test suite
         run: ./tests/run.sh --strict
+
+  # AGENTS.md pins these scripts to bash 3.2 and BSD sed, and the test suite
+  # only exercises the paths it happens to reach. shellcheck catches the rest -
+  # unquoted expansions, dead assignments, misused test operators - so the
+  # repo's shell rules are enforced rather than remembered. It needs no Nix and
+  # no Pi, so it runs on a cheap Linux runner and reports long before the two
+  # macOS jobs finish. It does not model bash 3.2, so a clean run here is not
+  # proof of 3.2 compatibility; that stays a review concern.
+  lint:
+    name: Shell lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # Pinned rather than using whatever shellcheck the runner image ships, so
+      # a new upstream release that adds a check cannot turn CI red on its own.
+      # The checksum is verified because this job downloads an executable.
+      - name: Install shellcheck
+        run: |
+          version=0.11.0
+          sha256=8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198
+          curl --fail --silent --show-error --location \
+            "https://github.com/koalaman/shellcheck/releases/download/v$version/shellcheck-v$version.linux.x86_64.tar.xz" \
+            -o "$RUNNER_TEMP/shellcheck.tar.xz"
+          echo "$sha256  $RUNNER_TEMP/shellcheck.tar.xz" | sha256sum --check --strict
+          tar -xJf "$RUNNER_TEMP/shellcheck.tar.xz" -C "$RUNNER_TEMP" \
+            --strip-components=1 "shellcheck-v$version/shellcheck"
+          echo "$RUNNER_TEMP" >>"$GITHUB_PATH"
+
+      - name: Run shellcheck
+        run: shellcheck bootstrap.sh rebuild.sh lib/*.sh tests/*.sh

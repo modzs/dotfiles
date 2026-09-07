@@ -170,8 +170,8 @@ Read through these arrays before running `bootstrap.sh` for the first time, and 
 - `home/` - the actual config files that get symlinked into place.
 - `tests/` - the behaviour tests. Run them with `./tests/run.sh`, or
   `./tests/run.sh --strict` to fail on any check that had to be skipped.
-  CI runs the strict form on every pull request, along with `nix flake check`
-  and a full build of the system closure.
+  CI runs the strict form on every pull request, along with `nix flake check`,
+  a full build of the system closure, and a shellcheck lint of the shell scripts.
 
 ## How the symlinks work
 
