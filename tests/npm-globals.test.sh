@@ -7,7 +7,8 @@
 # instead of doing anything. Nothing here touches the real ~/.npm-global, the
 # network, or a real npm.
 #
-# Coverage - the four promises README.md states as fact:
+# Coverage - the contract at the top of lib/npm-globals.sh, whose first three
+# promises README.md also states as fact:
 # - every pinned version already installed: not one npm call, so zero network;
 # - a differing version, and an absent package: installed at exactly the pin;
 # - a failed install: warns, keeps going, and does not abort the switch;
