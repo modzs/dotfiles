@@ -6,6 +6,14 @@ Deliberate decisions in this repo - do NOT silently revert them:
 - `bootstrap.sh` and `rebuild.sh` must stay bash 3.2 compatible: macOS ships bash 3.2 as `/bin/bash`, and
   `#!/usr/bin/env bash` does not change that on a stock Mac. No associative arrays, `mapfile`/`readarray`,
   `${var^^}`/`${var,,}`, `&>>`, `[[ -v ]]`, or `${!var@}`. They also use BSD `sed -i '' -E`, which GNU sed rejects.
+- Node is deliberately provided by nixpkgs (`home.packages`), NOT by Homebrew `brews`. That is
+  what moves `npm prefix -g` to `~/.npm-global` and puts the npm agent CLIs outside the tree
+  `cleanup = "zap"` manages. Adding `node` to `brews` would silently undo the fix. See the
+  "Agent toolchain" section of README.md.
+- The three axi tools generate their Claude `SessionStart` hooks with `<tool> setup hooks`,
+  which writes to `~/.claude/settings.json` - a `mkOutOfStoreSymlink` to the tracked
+  `home/.claude/settings.json`. Running it dirties the working tree, so the hooks are committed
+  instead of regenerated during activation.
 - Never commit `.no-mistakes/` validation evidence to this public repo. `.no-mistakes/` is gitignored; if a validation pipeline stages evidence into a branch, drop it before merging.
 
 ## Maintaining this file

@@ -103,6 +103,18 @@ nvim --version
 
 **Expected output:** Neovim version info (e.g., "NVIM v0.9.0")
 
+Check that Node and the agent CLIs came from the right places:
+
+```bash
+which node
+gh-axi --version
+```
+
+**Expected output:** a path under `/etc/profiles/per-user/` or `~/.nix-profile` for `node`
+(not `/opt/homebrew/bin/node`), and the version pinned in `home.nix` for `gh-axi`.
+If `which node` points into `/opt/homebrew`, a leftover Homebrew Node is shadowing the Nix
+one; see "Migrating a machine that already had Homebrew Node" in README.md.
+
 ### Step 5: Fix the Git Identity
 
 `home.nix` ships with a concrete git name and email already filled in - the repo owner's, not yours. Until you change it, every commit you make on this machine is attributed to the wrong person.
@@ -318,6 +330,45 @@ Then apply:
 - Removes any packages not in the list (because `cleanup = "zap"` is enabled)
 - Takes a few minutes
 
+### Bumping or Adding a Pinned npm Agent CLI
+
+The agent CLIs (`gh-axi`, `chrome-devtools-axi`, `lavish-axi`, `tasks-axi`, `quota-axi`) are not
+in Nixpkgs, so `home.nix` pins them by version and installs them into `~/.npm-global`.
+
+Edit `home.nix` and find the `npmGlobals` attribute set near the top:
+
+```nix
+npmGlobals = {
+  "gh-axi" = "0.1.35";
+  "chrome-devtools-axi" = "0.1.34";
+  "lavish-axi" = "0.1.67";
+  "tasks-axi" = "0.2.5";
+  "quota-axi" = "0.1.40";
+  "some-other-cli" = "1.2.3";   # <- add a new CLI here
+};
+```
+
+Check what versions are available first:
+
+```bash
+npm view gh-axi versions --json | tail -20
+```
+
+Then apply:
+
+```bash
+cd ~/.dotfiles
+./rebuild.sh
+```
+
+**What it does:**
+- Compares each pinned version against what is already in `~/.npm-global`
+- Installs only the ones that differ, so an unchanged rebuild makes no network calls
+- Leaves the existing copy in place and prints a warning if an install fails
+
+Do NOT use `npm install -g` by hand to change one of these. The next `./rebuild.sh` will put
+the pinned version back, which is the point of pinning. Change `home.nix` instead.
+
 ### Adding Work-Specific Configuration (Employer Machine)
 
 If you're on a work machine and need separate config:
@@ -410,6 +461,32 @@ git status
 - Shows what will be committed
 - Nix needs all files to be tracked
 
+### A Node Tool Fails With `UNABLE_TO_GET_ISSUER_CERT_LOCALLY`
+
+This means a Node binary is resolving TLS roots through an empty trust store. It happens with
+Homebrew-built Node, which looks in `/opt/homebrew/etc/openssl@3` rather than at the system
+bundle.
+
+Check which Node you are actually running:
+
+```bash
+which node
+node -p "process.config.variables.node_shared_openssl"
+```
+
+If `which node` is `/opt/homebrew/bin/node`, a leftover Homebrew Node is shadowing the Nix one.
+Remove it, or check that `~/.npm-global/bin` is ahead of `/opt/homebrew/bin` on your `PATH`.
+
+`home.nix` sets `NODE_EXTRA_CA_CERTS=/etc/ssl/certs/ca-certificates.crt` for exactly this case,
+so confirm it is exported in your shell:
+
+```bash
+echo $NODE_EXTRA_CA_CERTS
+```
+
+**Expected output:** `/etc/ssl/certs/ca-certificates.crt`. If it's empty, run `exec zsh` to pick
+up the current session variables.
+
 ### Homebrew Packages Were Deleted
 
 The config has `cleanup = "zap"` enabled, which removes packages not in the list. If packages disappeared:
@@ -451,6 +528,7 @@ cd ~/.dotfiles
 - `nano ~/.dotfiles/home.nix` - Edit home-manager config
 - `nano ~/.dotfiles/configuration-darwin.nix` - Edit macOS system settings and Homebrew packages
 - `nix search nixpkgs package-name` - Find a package to install
+- `npm view <cli> versions --json` - Check versions before bumping a pin in `npmGlobals`
 - `exec zsh` - Reload shell after changes
 
 ---

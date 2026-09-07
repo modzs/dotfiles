@@ -41,6 +41,10 @@
     onActivation.cleanup = "zap";  # remove anything not listed here
     onActivation.autoUpdate = true;
     onActivation.extraFlags = [ "--force" ];
+    # Node is deliberately absent from `brews`. It comes from nixpkgs via
+    # home.nix, which pins it through flake.lock and - because a Nix node's npm
+    # prefix lives in $HOME rather than /opt/homebrew - keeps the npm-installed
+    # agent CLIs outside the tree the zap above manages. See README.
     brews = [
       "herdr"
       "gh"
