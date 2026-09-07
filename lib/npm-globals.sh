@@ -19,10 +19,11 @@
 #   - a failed install warns and the script still succeeds, so a switch is
 #     never aborted by an offline machine;
 #   - with DRY_RUN set, it reports what it would install and installs nothing;
-#   - a miswired call - the two directory arguments swapped, or any npm prefix
-#     that is not an absolute path - stops the switch loudly. That tolerance for
-#     a failed install exists for offline machines, and would otherwise turn a
-#     wiring bug into an "offline?" warning on every rebuild, forever.
+#   - a miswired call - a node bin directory without both binaries this needs,
+#     or an npm prefix that is not an absolute path - stops the switch loudly.
+#     The tolerances above exist for offline machines and corrupt manifests, and
+#     would otherwise absorb a wiring bug into an "offline?" warning, or into a
+#     full reinstall of every pin, on every rebuild, forever.
 #
 # Must stay bash 3.2 compatible - see AGENTS.md.
 set -eu
@@ -44,10 +45,12 @@ case $npmPrefix in
     ;;
 esac
 
-if [ ! -x "$nodeBin/npm" ]; then
-  echo "npm-globals.sh: no executable npm in node bin directory '$nodeBin'" >&2
-  exit 2
-fi
+for required in npm node; do
+  if [ ! -x "$nodeBin/$required" ]; then
+    echo "npm-globals.sh: no executable $required in node bin directory '$nodeBin'" >&2
+    exit 2
+  fi
+done
 
 for spec in "$@"; do
   name="${spec%@*}"

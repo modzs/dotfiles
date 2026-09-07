@@ -320,6 +320,30 @@ test_relative_npm_prefix_is_rejected() {
   pass "wiring: an npm prefix that is not an absolute path is rejected"
 }
 
+# The version guard reads the installed version with `node`, so a bin directory
+# carrying npm but not node breaks promise 1 rather than promise 2: every
+# manifest read yields an empty version, nothing ever matches its pin, and the
+# rebuild reinstalls every CLI over the network, converging never and erroring
+# never. The fixture below is already at exactly its pinned version, so an
+# install of any kind is the regression.
+test_node_bin_directory_without_node_is_rejected() {
+  local sb status
+  sb=$(make_sandbox)
+  install_fixture "$sb" gh-axi 0.1.35
+  rm "$sb/nodebin/node"
+  status=$(run_npm_globals_raw "$sb" "$sb/nodebin" "$sb/prefix" gh-axi@0.1.35)
+
+  [ "$status" != 0 ] || fail "a node bin directory with no node was accepted"
+  assert_contains "$(sandbox_err "$sb")" "no executable node in node bin directory" \
+    "the failure did not name node as the problem"
+  assert_not_contains "$(sandbox_err "$sb")" "offline?" \
+    "a wiring error was reported as an offline machine"
+  [ -z "$(sandbox_calls "$sb")" ] \
+    || fail "an up-to-date pin was reinstalled with node missing: $(sandbox_calls "$sb")"
+
+  pass "wiring: a node bin directory with npm but no node is rejected"
+}
+
 test_all_pinned_versions_present_makes_no_npm_call
 test_absent_package_is_installed_at_the_pinned_version
 test_wrong_version_is_reinstalled_at_the_pinned_version
@@ -332,5 +356,6 @@ test_failed_install_does_not_stop_later_specs
 test_dry_run_reports_and_installs_nothing
 test_swapped_directory_arguments_fail_loudly_and_install_nothing
 test_relative_npm_prefix_is_rejected
+test_node_bin_directory_without_node_is_rejected
 
 test_summary
