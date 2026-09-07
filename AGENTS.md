@@ -24,6 +24,7 @@ Deliberate decisions in this repo - do NOT silently revert them:
   darwin branch only advances to commits whose Darwin jobset finished building, so the binary
   cache is reliable and `./rebuild.sh` does not fall back to compiling from source. It lags the
   release branch by design; do not "modernize" it back to the generic branch.
+  `tests/nixpkgs-channel.test.sh` guards this by asking channels.nixos.org and cache.nixos.org.
 - Never commit `.no-mistakes/` validation evidence to this public repo. `.no-mistakes/` is gitignored; if a validation pipeline stages evidence into a branch, drop it before merging.
 
 ## Maintaining this file
