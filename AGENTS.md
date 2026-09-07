@@ -20,6 +20,10 @@ Deliberate decisions in this repo - do NOT silently revert them:
 - Tests live in `tests/` and run with `./tests/run.sh` (`--strict` fails on any skipped check).
   A check that could not run must report `skip -`, never `ok -`; CI runs the strict form, so a
   new environment-dependent test needs its dependency added to `.github/workflows/ci.yml`.
+- The `nixpkgs` input in `flake.nix` tracks `nixpkgs-26.05-darwin`, not `release-26.05`. The
+  darwin branch only advances to commits whose Darwin jobset finished building, so the binary
+  cache is reliable and `./rebuild.sh` does not fall back to compiling from source. It lags the
+  release branch by design; do not "modernize" it back to the generic branch.
 - Never commit `.no-mistakes/` validation evidence to this public repo. `.no-mistakes/` is gitignored; if a validation pipeline stages evidence into a branch, drop it before merging.
 
 ## Maintaining this file
