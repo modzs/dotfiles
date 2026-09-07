@@ -17,8 +17,9 @@
 #   input keeping the identity already there, a name typed without an email, a
 #   malformed email that re-prompts instead of aborting, a mistyped email
 #   abandoned on a machine that already has an identity, no default offered from
-#   the wider git config, and an existing ~/.gitconfig.local keeping its
-#   unrelated contents.
+#   the wider git config, an existing ~/.gitconfig.local keeping its unrelated
+#   contents, a ~/.gitconfig that shadows the new identity, and an unparsable
+#   ~/.gitconfig.local that must not abort the run.
 set -u
 
 # shellcheck source=tests/lib.sh
@@ -400,7 +401,7 @@ test_identity_empty_keeps_existing() {
   [ "$status" = 0 ] || fail "bootstrap failed on an empty git identity: $(sandbox_out "$sb")"
   assert_contains "$(sandbox_out "$sb")" "currently commits as \"Grace Hopper <grace@example.com>\"" \
     "bootstrap did not report the existing identity before prompting"
-  assert_contains "$(sandbox_out "$sb")" "This machine commits as \"Grace Hopper <grace@example.com>\"" \
+  assert_contains "$(sandbox_out "$sb")" "~/.gitconfig.local now commits as \"Grace Hopper <grace@example.com>\"" \
     "bootstrap did not keep the existing identity on empty input"
   [ "$(gitconfig_local_value "$sb" user.name)" = "Grace Hopper" ] \
     || fail "empty input changed the existing git name"
@@ -484,12 +485,63 @@ test_identity_abandoned_email_reports_file_state() {
   [ "$status" = 0 ] || fail "bootstrap failed on an abandoned email: $(sandbox_out "$sb")"
   [ "$(gitconfig_local_value "$sb" user.email)" = "grace@example.com" ] \
     || fail "abandoning the email prompt changed the email already in ~/.gitconfig.local"
-  assert_contains "$(sandbox_out "$sb")" "This machine commits as \"Grace Hopper <grace@example.com>\"" \
+  assert_contains "$(sandbox_out "$sb")" "~/.gitconfig.local now commits as \"Grace Hopper <grace@example.com>\"" \
     "bootstrap did not report the identity ~/.gitconfig.local actually holds"
-  assert_not_contains "$(sandbox_out "$sb")" "Git will refuse to commit" \
+  assert_not_contains "$(sandbox_out "$sb")" "sets no identity" \
     "bootstrap claimed no identity was set while ~/.gitconfig.local held a complete one"
 
   pass "identity: an abandoned email still reports the identity the file holds"
+}
+
+# git reads ~/.gitconfig ahead of the Home Manager config carrying the
+# ~/.gitconfig.local include, and shadows each key on its own - a [user] section
+# holding only an email yields a name from one file and an email from another.
+# The run must name the winning file per key and leave that file alone.
+test_identity_shadowed_by_gitconfig_is_reported() {
+  local sb status before
+  sb=$(make_sandbox)
+  cat >"$sb/home/.gitconfig" <<'GITCONFIG'
+[user]
+	email = previous@example.com
+[credential]
+	helper = osxkeychain
+GITCONFIG
+  before=$(cat "$sb/home/.gitconfig")
+  status=$(run_bootstrap "$sb" repo "$(identity_input '' 'Ada Lovelace' 'ada@example.com')")
+
+  [ "$status" = 0 ] || fail "bootstrap failed against a shadowing ~/.gitconfig: $(sandbox_out "$sb")"
+  assert_contains "$(sandbox_out "$sb")" "git resolves user.email to \"previous@example.com\" from $sb/home/.gitconfig" \
+    "bootstrap did not report that ~/.gitconfig shadows the email it just wrote"
+  # user.name is not in that file, so nothing outranks the one just written.
+  assert_not_contains "$(sandbox_out "$sb")" "git resolves user.name" \
+    "bootstrap reported a shadowed name that nothing was shadowing"
+  [ "$(cat "$sb/home/.gitconfig")" = "$before" ] \
+    || fail "bootstrap modified ~/.gitconfig instead of only reporting it"
+  [ "$(gitconfig_local_value "$sb" user.email)" = "ada@example.com" ] \
+    || fail "the new email did not reach ~/.gitconfig.local"
+
+  pass "identity: a ~/.gitconfig that outranks the include is named, not edited"
+}
+
+# Nix is installed and flake.nix rewritten by now, so git refusing to touch a
+# hand-broken ~/.gitconfig.local must cost a warning, not the whole switch.
+test_identity_unparsable_gitconfig_local_still_switches() {
+  local sb status
+  sb=$(make_sandbox)
+  printf '[user\n\tname = Broken\n' >"$sb/home/.gitconfig.local"
+  status=$(run_bootstrap "$sb" repo "$(identity_input '' 'Ada Lovelace' 'ada@example.com')")
+
+  [ "$status" = 0 ] || fail "an unparsable ~/.gitconfig.local aborted bootstrap: $(sandbox_out "$sb")"
+  assert_contains "$(sandbox_calls "$sb")" "switch --flake $sb/home/.dotfiles#mac" \
+    "bootstrap never reached the switch with an unparsable ~/.gitconfig.local"
+  assert_contains "$(sandbox_out "$sb")" "git cannot parse ~/.gitconfig.local" \
+    "bootstrap did not say the file could not be parsed"
+  assert_contains "$(sandbox_out "$sb")" "git refused to write user.name and user.email to ~/.gitconfig.local" \
+    "bootstrap did not report the writes it could not make"
+  assert_not_contains "$(sandbox_out "$sb")" "sets no git identity yet" \
+    "bootstrap claimed an unparsable file simply sets no identity"
+
+  pass "identity: an unparsable ~/.gitconfig.local warns and still reaches the switch"
 }
 
 # The prompt default comes from ~/.gitconfig.local alone. Anything wider would
@@ -508,8 +560,8 @@ GITCONFIG
   [ "$status" = 0 ] || fail "bootstrap failed with no ~/.gitconfig.local: $(sandbox_out "$sb")"
   assert_contains "$(sandbox_out "$sb")" "~/.gitconfig.local sets no git identity yet" \
     "bootstrap claimed an identity that ~/.gitconfig.local does not hold"
-  assert_not_contains "$(sandbox_out "$sb")" "Previous Owner" \
-    "bootstrap offered the wider git config's identity as the prompt default"
+  assert_not_contains "$(sandbox_out "$sb")" "currently commits as" \
+    "bootstrap proposed an identity from outside ~/.gitconfig.local"
   [ -z "$(gitconfig_local_value "$sb" user.name)" ] \
     || fail "empty input copied another identity into ~/.gitconfig.local"
   [ -z "$(gitconfig_local_value "$sb" user.email)" ] \
@@ -538,6 +590,8 @@ test_identity_preserves_unrelated_gitconfig_local
 test_identity_malformed_email_reprompts
 test_identity_name_without_email_is_kept
 test_identity_abandoned_email_reports_file_state
+test_identity_shadowed_by_gitconfig_is_reported
+test_identity_unparsable_gitconfig_local_still_switches
 test_identity_offers_no_default_from_global_config
 
 test_summary

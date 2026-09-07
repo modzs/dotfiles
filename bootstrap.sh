@@ -87,6 +87,14 @@ echo "==> Step 5: personalize the git identity"
 # programs.git.includes. Writing the two keys with `git config --file` leaves
 # anything else already in the file - work-machine overrides, say - untouched.
 GITCONFIG_LOCAL="$HOME/.gitconfig.local"
+# A hand-edited ~/.gitconfig.local can be unparsable, and then every read of it
+# comes back empty - indistinguishable from a file that simply sets nothing.
+# Ask git once, keep its complaint, and report that instead of a false "no
+# identity yet".
+GITCONFIG_LOCAL_ERROR=""
+if [ -e "$GITCONFIG_LOCAL" ]; then
+  GITCONFIG_LOCAL_ERROR="$(git config --file "$GITCONFIG_LOCAL" --list 2>&1 >/dev/null || true)"
+fi
 # Prefer what that file already says, and offer nothing otherwise: a default
 # read from this machine's wider git config would propose whoever configured it
 # before - including the identity this repo deliberately stopped shipping.
@@ -94,7 +102,11 @@ GIT_NAME="$(git config --file "$GITCONFIG_LOCAL" --get user.name 2>/dev/null || 
 GIT_EMAIL="$(git config --file "$GITCONFIG_LOCAL" --get user.email 2>/dev/null || true)"
 echo "    Commits from this machine are attributed to this identity."
 echo "    It is written to ~/.gitconfig.local, which is outside this repo and never committed."
-if [ -n "$GIT_NAME" ] || [ -n "$GIT_EMAIL" ]; then
+if [ -n "$GITCONFIG_LOCAL_ERROR" ]; then
+  echo "    git cannot parse ~/.gitconfig.local, so nothing can be read from it:"
+  echo "      $GITCONFIG_LOCAL_ERROR"
+  echo "    Fix that file by hand; the build below runs either way."
+elif [ -n "$GIT_NAME" ] || [ -n "$GIT_EMAIL" ]; then
   echo "    ~/.gitconfig.local currently commits as \"$GIT_NAME <$GIT_EMAIL>\"."
 else
   echo "    ~/.gitconfig.local sets no git identity yet."
@@ -120,39 +132,85 @@ while :; do
   GIT_EMAIL=""
 done
 # Each key is written on its own: a name typed without an email is still the
-# user's answer, and git names the missing half itself at commit time.
+# user's answer, and git names the missing half itself at commit time. A write
+# git refuses - an unparsable file, or a duplicated [user] section it cannot
+# collapse - is reported and survived, never allowed to kill the run one step
+# short of the switch.
 WROTE=""
+UNWRITABLE=""
 if [ -n "$NEW_GIT_NAME" ]; then
-  git config --file "$GITCONFIG_LOCAL" user.name "$NEW_GIT_NAME"
-  WROTE="user.name"
+  if git config --file "$GITCONFIG_LOCAL" user.name "$NEW_GIT_NAME" 2>/dev/null; then
+    WROTE="user.name"
+  else
+    UNWRITABLE="user.name"
+  fi
 fi
 if [ -n "$NEW_GIT_EMAIL" ]; then
-  git config --file "$GITCONFIG_LOCAL" user.email "$NEW_GIT_EMAIL"
-  WROTE="${WROTE:+$WROTE and }user.email"
+  if git config --file "$GITCONFIG_LOCAL" user.email "$NEW_GIT_EMAIL" 2>/dev/null; then
+    WROTE="${WROTE:+$WROTE and }user.email"
+  else
+    UNWRITABLE="${UNWRITABLE:+$UNWRITABLE and }user.email"
+  fi
 fi
 if [ -n "$WROTE" ]; then
   echo "    Wrote $WROTE to ~/.gitconfig.local."
 fi
-# Report the file, not the keystrokes. An answer abandoned mid-prompt leaves
-# whatever was already there, so only a fresh read says what this machine will
-# actually commit as.
-FINAL_GIT_NAME="$(git config --file "$GITCONFIG_LOCAL" --get user.name 2>/dev/null || true)"
-FINAL_GIT_EMAIL="$(git config --file "$GITCONFIG_LOCAL" --get user.email 2>/dev/null || true)"
-if [ -n "$FINAL_GIT_NAME" ] && [ -n "$FINAL_GIT_EMAIL" ]; then
-  echo "    This machine commits as \"$FINAL_GIT_NAME <$FINAL_GIT_EMAIL>\"."
-elif [ -n "$FINAL_GIT_NAME" ]; then
-  echo "    ~/.gitconfig.local holds user.name \"$FINAL_GIT_NAME\" and no user.email."
-  echo "    Git will refuse to commit until you add one:"
-  echo "      git config --file ~/.gitconfig.local user.email \"you@example.com\""
-elif [ -n "$FINAL_GIT_EMAIL" ]; then
-  echo "    ~/.gitconfig.local holds user.email \"$FINAL_GIT_EMAIL\" and no user.name."
-  echo "    Git will refuse to commit until you add one:"
-  echo "      git config --file ~/.gitconfig.local user.name \"Your Name\""
-else
-  echo "    ~/.gitconfig.local sets no identity. Git will refuse to commit until you add one:"
+if [ -n "$UNWRITABLE" ]; then
+  echo "    git refused to write $UNWRITABLE to ~/.gitconfig.local."
+  echo "    Repair that file by hand, then set the identity yourself:"
   echo "      git config --file ~/.gitconfig.local user.name \"Your Name\""
   echo "      git config --file ~/.gitconfig.local user.email \"you@example.com\""
 fi
+
+# git reads ~/.gitconfig ahead of the Home Manager config that carries the
+# ~/.gitconfig.local include, and each key is shadowed on its own - a stale
+# [user] section holding only an email yields a mixed identity that is harder to
+# spot than a plainly wrong one. That file is the user's, outside this repo and
+# often carrying unrelated settings, so name it and stop; never edit it. $HOME
+# rather than the current directory, so a repository's own config is not
+# mistaken for a machine-wide one.
+report_shadowed_identity_key() {
+  local key=$1 own=$2 resolved origin value
+  resolved="$(git -C "$HOME" config --show-origin --get "$key" 2>/dev/null || true)"
+  case "$resolved" in
+    file:*) : ;;
+    *) return 0 ;;
+  esac
+  value="${resolved#*$'\t'}"
+  origin="${resolved%%$'\t'*}"
+  origin="${origin#file:}"
+  [ "$origin" != "$GITCONFIG_LOCAL" ] || return 0
+  [ "$value" != "$own" ] || return 0
+  echo "    Heads up: git resolves $key to \"$value\" from $origin."
+  echo "    That file outranks the ~/.gitconfig.local include, so it keeps winning."
+  echo "    This script will not touch it. Drop the setting there yourself with:"
+  echo "      git config --file \"$origin\" --unset $key"
+}
+
+# Report the file, not the keystrokes. An answer abandoned mid-prompt leaves
+# whatever was already there, so only a fresh read says what ~/.gitconfig.local
+# holds now.
+FINAL_GIT_NAME="$(git config --file "$GITCONFIG_LOCAL" --get user.name 2>/dev/null || true)"
+FINAL_GIT_EMAIL="$(git config --file "$GITCONFIG_LOCAL" --get user.email 2>/dev/null || true)"
+if [ -z "$GITCONFIG_LOCAL_ERROR" ] && [ -z "$UNWRITABLE" ]; then
+  if [ -n "$FINAL_GIT_NAME" ] && [ -n "$FINAL_GIT_EMAIL" ]; then
+    echo "    ~/.gitconfig.local now commits as \"$FINAL_GIT_NAME <$FINAL_GIT_EMAIL>\"."
+  elif [ -n "$FINAL_GIT_NAME" ]; then
+    echo "    ~/.gitconfig.local holds user.name \"$FINAL_GIT_NAME\" and no user.email."
+    echo "    Add one with:"
+    echo "      git config --file ~/.gitconfig.local user.email \"you@example.com\""
+  elif [ -n "$FINAL_GIT_EMAIL" ]; then
+    echo "    ~/.gitconfig.local holds user.email \"$FINAL_GIT_EMAIL\" and no user.name."
+    echo "    Add one with:"
+    echo "      git config --file ~/.gitconfig.local user.name \"Your Name\""
+  else
+    echo "    ~/.gitconfig.local sets no identity. Add one with:"
+    echo "      git config --file ~/.gitconfig.local user.name \"Your Name\""
+    echo "      git config --file ~/.gitconfig.local user.email \"you@example.com\""
+  fi
+fi
+report_shadowed_identity_key user.name "$FINAL_GIT_NAME"
+report_shadowed_identity_key user.email "$FINAL_GIT_EMAIL"
 
 echo "==> Step 6: first build and switch"
 # darwin-rebuild doesn't exist yet on a fresh machine, so run it straight from

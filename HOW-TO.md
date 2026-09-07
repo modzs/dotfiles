@@ -122,16 +122,18 @@ one; see "Migrating a machine that already had Homebrew Node" in README.md.
 
 ### Step 5: Fix the Git Identity
 
-Nothing in this repo sets a git name or email. `bootstrap.sh` step 5 prompts for yours and writes it to the untracked `~/.gitconfig.local`, which `home.nix` pulls in through `programs.git.includes`. If you skipped that prompt, this machine has no identity and git will refuse to commit.
+Nothing in this repo sets a git name or email. `bootstrap.sh` step 5 prompts for yours and writes it to the untracked `~/.gitconfig.local`, which `home.nix` pulls in through `programs.git.includes`. If you skipped that prompt, nothing in this config sets an identity.
 
 Check what you actually have after the switch:
 
 ```bash
-git config --get user.name
-git config --get user.email
+git config --show-origin --get user.name
+git config --show-origin --get user.email
 ```
 
-**Expected output:** your own name and email. If you see nothing, or somebody else's, fix it in `~/.gitconfig.local` - never in this repo. See [Setting the Git Identity](#setting-the-git-identity) below for the exact commands.
+**Expected output:** your own name and email, coming from `~/.gitconfig.local`. Set them there - never in this repo - with the commands in [Setting the Git Identity](#setting-the-git-identity) below.
+
+If the origin is some other file, that file outranks the include and is what you actually commit as. `~/.gitconfig` is the usual culprit on a machine that was used before this config, and it shadows `user.name` and `user.email` independently, so you can end up with a name from one file and an email from another. Remove the setting from the winning file - `git config --file ~/.gitconfig --unset user.email` - rather than fighting it from `~/.gitconfig.local`.
 
 ---
 
@@ -392,7 +394,7 @@ EOF
 
 Both `.local` files are in `.gitignore` and won't be committed to the repo.
 
-No further wiring is needed: `home.nix` already sources `~/.zshrc.local` from `programs.zsh.initContent` and pulls in `~/.gitconfig.local` through `programs.git.includes`. `home.nix` sets no name or email itself, so `~/.gitconfig.local` is the identity you commit with on a work machine, and git simply has none when the file isn't there.
+No further wiring is needed: `home.nix` already sources `~/.zshrc.local` from `programs.zsh.initContent` and pulls in `~/.gitconfig.local` through `programs.git.includes`. `home.nix` sets no name or email itself, so `~/.gitconfig.local` is where a work machine's identity goes, and git simply has none when neither that file nor a leftover `~/.gitconfig` supplies one.
 
 ---
 
