@@ -15,33 +15,82 @@ DOTFILES_TEST_LIB_SOURCED=1
 # shellcheck disable=SC2034
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
+# --- result accounting -------------------------------------------------------
+#
+# A skipped check is not a passing check. Every test either passes or says out
+# loud what it could not run, the counts are reported at the end of the file,
+# and --strict turns any skip into a failure so CI can demand the full suite.
+
+DOTFILES_TEST_PASSED=0
+DOTFILES_TEST_SKIPPED=0
+DOTFILES_TEST_STRICT=${DOTFILES_TEST_STRICT:-0}
+
 fail() {
   printf 'not ok - %s\n' "$1" >&2
   exit 1
 }
 
 pass() {
+  DOTFILES_TEST_PASSED=$((DOTFILES_TEST_PASSED + 1))
   printf 'ok - %s\n' "$1"
 }
 
-# --- self-cleaning temp root -------------------------------------------------
+# skip "<what was not checked> (<what was unavailable>)"
+skip() {
+  DOTFILES_TEST_SKIPPED=$((DOTFILES_TEST_SKIPPED + 1))
+  printf 'skip - %s\n' "$1"
+}
 
-DOTFILES_TEST_CLEANUP_DIRS=()
+# Call once at the end of a test file, after the last test function.
+test_summary() {
+  printf '%d ok, %d skipped\n' "$DOTFILES_TEST_PASSED" "$DOTFILES_TEST_SKIPPED"
+  # tests/run.sh sets this to aggregate counts across test files.
+  if [ -n "${DOTFILES_TEST_TALLY:-}" ]; then
+    printf '%d %d\n' "$DOTFILES_TEST_PASSED" "$DOTFILES_TEST_SKIPPED" >>"$DOTFILES_TEST_TALLY"
+  fi
+  if [ "$DOTFILES_TEST_STRICT" = 1 ] && [ "$DOTFILES_TEST_SKIPPED" -gt 0 ]; then
+    fail "--strict: $DOTFILES_TEST_SKIPPED check(s) skipped"
+  fi
+}
 
-dotfiles_test_cleanup() {
-  local d
-  for d in "${DOTFILES_TEST_CLEANUP_DIRS[@]:-}"; do
-    [ -n "$d" ] && rm -rf "$d"
+# Test files pass their own "$@" here.
+dotfiles_test_parse_args() {
+  while [ "$#" -gt 0 ]; do
+    case $1 in
+      --strict) DOTFILES_TEST_STRICT=1 ;;
+      *) fail "unknown option: $1" ;;
+    esac
+    shift
   done
 }
 
+# --- self-cleaning temp root -------------------------------------------------
+#
+# The roots to remove are recorded in a file, and the EXIT trap is installed
+# here, at source time, in the test file's own shell. Both details matter:
+# callers write `TMP_ROOT=$(dotfiles_test_tmproot ...)`, and a trap registered
+# inside that command substitution fires the moment the substitution ends -
+# deleting the temp root before a single test can use it. A shell variable
+# appended to in there would be lost for the same reason.
+
+DOTFILES_TEST_CLEANUP_LIST=$(mktemp "${TMPDIR:-/tmp}/dotfiles-test-cleanup.XXXXXX")
+
+dotfiles_test_cleanup() {
+  local d
+  [ -f "$DOTFILES_TEST_CLEANUP_LIST" ] || return 0
+  while IFS= read -r d; do
+    [ -n "$d" ] && rm -rf "$d"
+  done <"$DOTFILES_TEST_CLEANUP_LIST"
+  rm -f "$DOTFILES_TEST_CLEANUP_LIST"
+}
+trap dotfiles_test_cleanup EXIT
+
 dotfiles_test_tmproot() {
   local prefix=${1:-dotfiles-test} root
-  root=$(mktemp -d "${TMPDIR:-/tmp}/${prefix}.XXXXXX")
-  if [ "${#DOTFILES_TEST_CLEANUP_DIRS[@]}" -eq 0 ]; then
-    trap dotfiles_test_cleanup EXIT
-  fi
-  DOTFILES_TEST_CLEANUP_DIRS+=("$root")
+  root=$(mktemp -d "${TMPDIR:-/tmp}/${prefix}.XXXXXX") \
+    || fail "could not create a temp root for $prefix"
+  [ -d "$root" ] || fail "mktemp -d did not produce a directory for $prefix"
+  printf '%s\n' "$root" >>"$DOTFILES_TEST_CLEANUP_LIST"
   printf '%s\n' "$root"
 }
 

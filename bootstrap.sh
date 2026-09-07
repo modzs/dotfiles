@@ -5,6 +5,22 @@ set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 
+# shellcheck source=lib/dotfiles-link.sh
+. "$DIR/lib/dotfiles-link.sh"
+
+# Everything below resolves through ~/.dotfiles, so settle that path before
+# anything is installed and before sudo is asked for. Refusing here costs the
+# user nothing; refusing at step 5 would cost them a Nix install and a password.
+echo "==> Preflight: ~/.dotfiles"
+# A failing command substitution in an assignment exits under `set -e`, so an
+# unusable ~/.dotfiles stops the script right here.
+PREFLIGHT="$(dotfiles_link_check "$DIR")"
+if [ "$PREFLIGHT" = already ]; then
+  echo "    this repository already is ~/.dotfiles"
+else
+  echo "    ok"
+fi
+
 echo "==> Step 1: Determinate Nix"
 if command -v nix >/dev/null 2>&1; then
   echo "    nix already installed, skipping"
@@ -16,7 +32,7 @@ else
 fi
 
 echo "==> Step 2: symlink this repo to ~/.dotfiles"
-ln -sfn "$DIR" ~/.dotfiles
+dotfiles_link_apply "$DIR"
 
 echo "==> Step 3: personalize the configured username"
 REAL_USER="$(whoami)"

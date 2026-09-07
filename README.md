@@ -94,6 +94,11 @@ Before you run it: review "Make it yours" below and adjust settings as needed.
 4. Prompts for the machine name and writes it to the `hostName` line in `flake.nix`. Press Enter to keep the configured name.
 5. Runs the first build and switch with `darwin-rebuild switch --flake ~/.dotfiles#mac`.
 
+Before any of that it checks `~/.dotfiles`. If something is already there that
+isn't a symlink and isn't this repo, it stops immediately rather than after
+installing Nix and taking your password. Cloning the repo to `~/.dotfiles`
+itself is fine - step 2 then has nothing to do.
+
 After that, the config is applied and you're on the normal workflow below.
 
 ### Validate without applying
@@ -161,7 +166,12 @@ Read through these arrays before running `bootstrap.sh` for the first time, and 
 - `home.nix` - user-level config: shell, packages, prompt, symlinks, and the pinned npm agent CLIs.
 - `bootstrap.sh` - one-time setup: installs Nix, symlinks the repo, checks username, sets the machine name, and runs the first build.
 - `rebuild.sh` - applies changes after the first switch, with `darwin-rebuild switch`.
+- `lib/` - shell helpers shared by `bootstrap.sh` and `rebuild.sh`.
 - `home/` - the actual config files that get symlinked into place.
+- `tests/` - the behaviour tests. Run them with `./tests/run.sh`, or
+  `./tests/run.sh --strict` to fail on any check that had to be skipped.
+  CI runs the strict form on every pull request, along with `nix flake check`
+  and a full build of the system closure.
 
 ## How the symlinks work
 

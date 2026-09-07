@@ -23,6 +23,8 @@ set -u
 # shellcheck source=tests/lib.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
+dotfiles_test_parse_args "$@"
+
 TMP_ROOT=$(dotfiles_test_tmproot pi-calm)
 CALM_DIR="$ROOT/home/.pi/agent/extensions/calm"
 PI_PACKAGE_DIR=${PI_CALM_TEST_PACKAGE_DIR:-"$(npm root -g 2>/dev/null)/@earendil-works/pi-coding-agent"}
@@ -139,7 +141,14 @@ test_zero_coupling_and_state_file() {
   pass "zero coupling: no forbidden identifiers, attribution limited to license headers, state file untracked and unmanaged"
 }
 
-test_static_typescript_and_repo_wiring() {
+# Split out of the former combined "static wiring" test. That test emitted one
+# unconditional `pass` naming three things, two of which had their own skip
+# branches - so a machine without node or the Pi package printed two skips and
+# then claimed all three had passed. Each check now reports its own result:
+# the greps below need nothing but the repo, so they always run and always
+# produce a real `ok`, while the two environment-dependent checks stand alone
+# and say what was missing when they cannot run.
+test_home_manager_wiring() {
   # Home Manager links the extensions directory as a whole, so the calm
   # subdirectory auto-loads without any new declaration.
   grep -q 'home.file.".pi/agent/extensions".source =' "$ROOT/home.nix" \
@@ -149,24 +158,36 @@ test_static_typescript_and_repo_wiring() {
   [ -f "$CALM_DIR/index.ts" ] || fail "calm extension entry point missing"
   [ -f "$CALM_DIR/LICENSE" ] || fail "calm license file missing"
 
-  # JavaScript syntax of the pre-existing extension stays valid.
+  pass "static wiring: Home Manager auto-loads the calm extension directory"
+}
+
+test_existing_js_extension_parses() {
   if ! command -v node >/dev/null 2>&1; then
-    echo "skip: node not found for terminal-status-title.js syntax check"
-  else
-    node --check "$ROOT/home/.pi/agent/extensions/terminal-status-title.js" \
-      || fail "terminal-status-title.js has a JavaScript syntax error"
+    skip "terminal-status-title.js syntax check (node not found)"
+    return 0
   fi
 
+  node --check "$ROOT/home/.pi/agent/extensions/terminal-status-title.js" \
+    || fail "terminal-status-title.js has a JavaScript syntax error"
+
+  pass "static wiring: the existing JS extension parses"
+}
+
+test_calm_typescript_typechecks() {
   if ! have_pi_package; then
-    echo "skip: installed @earendil-works/pi-coding-agent package not found for TypeScript check"
-  elif ! command -v tsc >/dev/null 2>&1; then
-    echo "skip: tsc not found for TypeScript check"
-  else
-    local fixture="$TMP_ROOT/typecheck"
-    build_node_fixture "$fixture"
-    mkdir -p "$fixture/node_modules/@types"
-    ln -s "$PI_PACKAGE_DIR/node_modules/@types/node" "$fixture/node_modules/@types/node"
-    cat >"$fixture/tsconfig.json" <<'JSON'
+    skip "Pi Calm TypeScript check (installed @earendil-works/pi-coding-agent package not found)"
+    return 0
+  fi
+  if ! command -v tsc >/dev/null 2>&1; then
+    skip "Pi Calm TypeScript check (tsc not found)"
+    return 0
+  fi
+
+  local fixture="$TMP_ROOT/typecheck"
+  build_node_fixture "$fixture"
+  mkdir -p "$fixture/node_modules/@types"
+  ln -s "$PI_PACKAGE_DIR/node_modules/@types/node" "$fixture/node_modules/@types/node"
+  cat >"$fixture/tsconfig.json" <<'JSON'
 {
   "compilerOptions": {
     "target": "esnext",
@@ -183,21 +204,20 @@ test_static_typescript_and_repo_wiring() {
   "include": ["calm/**/*.ts"]
 }
 JSON
-    (cd "$fixture" && tsc -p tsconfig.json) \
-      || fail "Pi Calm extension does not typecheck under strict TypeScript"
-  fi
+  (cd "$fixture" && tsc -p tsconfig.json) \
+    || fail "Pi Calm extension does not typecheck under strict TypeScript"
 
-  pass "static wiring: Home Manager auto-load intact, TypeScript typechecks, existing JS extension parses"
+  pass "static wiring: the Pi Calm extension typechecks under strict TypeScript"
 }
 
 test_preference_and_command() {
   local fixture out status
   if ! command -v node >/dev/null 2>&1; then
-    echo "skip: node not found for Pi Calm preference test"
+    skip "Pi Calm preference and /calm command (node not found)"
     return 0
   fi
   if ! have_pi_package; then
-    echo "skip: installed @earendil-works/pi-coding-agent package not found"
+    skip "Pi Calm preference and /calm command (installed @earendil-works/pi-coding-agent package not found)"
     return 0
   fi
 
@@ -342,7 +362,7 @@ JS
 test_rendering_adapters_and_tool_shells() {
   local fixture out status
   if ! command -v node >/dev/null 2>&1 || ! have_pi_package; then
-    echo "skip: node or installed Pi package not found for rendering contract"
+    skip "Pi Calm rendering and tool-shell filtering (node or installed Pi package not found)"
     return 0
   fi
 
@@ -463,7 +483,7 @@ JS
 test_working_ship_and_lifecycle() {
   local fixture out status
   if ! command -v node >/dev/null 2>&1 || ! have_pi_package; then
-    echo "skip: node or installed Pi package not found for working-ship contract"
+    skip "Pi Calm working ship and lifecycle (node or installed Pi package not found)"
     return 0
   fi
 
@@ -547,7 +567,7 @@ JS
 test_collapsed_thinking_degradation() {
   local fixture out status
   if ! command -v node >/dev/null 2>&1 || ! have_pi_package; then
-    echo "skip: node or installed Pi package not found for adapter degradation"
+    skip "Pi Calm collapsed-thinking adapter degradation (node or installed Pi package not found)"
     return 0
   fi
 
@@ -589,7 +609,7 @@ JS
 test_real_pi_tui_smoke() {
   local fixture agent project socket pane i
   if ! command -v pi >/dev/null 2>&1 || ! command -v tmux >/dev/null 2>&1; then
-    echo "skip: pi or tmux not found for isolated real TUI smoke"
+    skip "real Pi TUI smoke in tmux (pi or tmux not found)"
     return 0
   fi
   [ "$(pi --version 2>/dev/null || true)" = "0.82.0" ] \
@@ -712,9 +732,13 @@ TS
 }
 
 test_zero_coupling_and_state_file
-test_static_typescript_and_repo_wiring
+test_home_manager_wiring
+test_existing_js_extension_parses
+test_calm_typescript_typechecks
 test_preference_and_command
 test_rendering_adapters_and_tool_shells
 test_working_ship_and_lifecycle
 test_collapsed_thinking_degradation
 test_real_pi_tui_smoke
+
+test_summary
