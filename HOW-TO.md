@@ -133,7 +133,7 @@ git config --show-origin --get user.email
 
 **Expected output:** your own name and email, coming from `~/.gitconfig.local`. Set them there - never in this repo - with the commands in [Setting the Git Identity](#setting-the-git-identity) below.
 
-If the origin is some other file, that file is what you actually commit as. `~/.gitconfig` is the usual one on a machine that was used before this config, and `user.name` and `user.email` are resolved independently, so you can end up with a name from one file and an email from another. Remove the setting from the file git names - `git config --file ~/.gitconfig --unset user.email` - so `~/.gitconfig.local` is the only place either key is set.
+If the origin is some other file, that file is what you actually commit as. `~/.gitconfig` is the usual one on a machine that was used before this config, and `user.name` and `user.email` are resolved independently, so you can end up with a name from one file and an email from another. Remove the setting from the file git names - `git config --file ~/.gitconfig --unset user.email` - then run the command again to see where git reads that key from now.
 
 ---
 
@@ -375,7 +375,7 @@ EOF
 
 **What it does:**
 - Creates a local git config file for work identity
-- `programs.git.includes` in `home.nix` pulls it in, and `home.nix` sets no identity of its own, so this file is the name and email you commit with
+- `programs.git.includes` in `home.nix` pulls it in, and `home.nix` sets no identity of its own; `git config --show-origin --get user.email` names the file git actually reads the identity from
 - Not tracked by git (stays private to your machine)
 
 Similarly, create `~/.zshrc.local` for work-specific environment variables:
