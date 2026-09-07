@@ -2,7 +2,10 @@
 
 Deliberate decisions in this repo - do NOT silently revert them:
 
-- `homebrew.onActivation.cleanup = "zap"` in `configuration.nix` is intentional. It forces the good habit of declaring every Homebrew package in the Nix config instead of installing things ad-hoc, which keeps the machine reproducible. Do not soften it to `uninstall` or `none`. Users are warned about its effect in README.md; this note is for anyone tempted to change the setting itself.
+- `homebrew.onActivation.cleanup = "zap"` in `configuration-darwin.nix` is intentional. It forces the good habit of declaring every Homebrew package in the Nix config instead of installing things ad-hoc, which keeps the machine reproducible. Do not soften it to `uninstall` or `none`. Users are warned about its effect in README.md; this note is for anyone tempted to change the setting itself.
+- `bootstrap.sh` and `rebuild.sh` must stay bash 3.2 compatible: macOS ships bash 3.2 as `/bin/bash`, and
+  `#!/usr/bin/env bash` does not change that on a stock Mac. No associative arrays, `mapfile`/`readarray`,
+  `${var^^}`/`${var,,}`, `&>>`, `[[ -v ]]`, or `${!var@}`. They also use BSD `sed -i '' -E`, which GNU sed rejects.
 - Never commit `.no-mistakes/` validation evidence to this public repo. `.no-mistakes/` is gitignored; if a validation pipeline stages evidence into a branch, drop it before merging.
 
 ## Maintaining this file

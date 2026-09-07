@@ -1,13 +1,12 @@
 # How to Use These Dotfiles
 
-This guide walks you through setting up your development environment using this dotfiles repo on either macOS or Arch Linux (Omarchy).
+This guide walks you through setting up your development environment using this dotfiles repo on macOS. This repo is macOS-only.
 
 ## Table of Contents
 
 1. [macOS Setup](#macos-setup)
-2. [Arch Linux / Omarchy Setup](#arch-linux--omarchy-setup)
-3. [Daily Workflow](#daily-workflow)
-4. [Customizing Your Setup](#customizing-your-setup)
+2. [Daily Workflow](#daily-workflow)
+3. [Customizing Your Setup](#customizing-your-setup)
 
 ---
 
@@ -104,209 +103,18 @@ nvim --version
 
 **Expected output:** Neovim version info (e.g., "NVIM v0.9.0")
 
-### Step 5: Set Git Identity (One-Time)
+### Step 5: Fix the Git Identity
 
-Git deliberately doesn't set your identity automatically. Configure it once:
+`home.nix` ships with a concrete git name and email already filled in - the repo owner's, not yours. Until you change it, every commit you make on this machine is attributed to the wrong person.
 
-```bash
-git config --global user.name "Your Name"
-git config --global user.email "your@email.com"
-```
-
-Or edit `home.nix` directly to set it declaratively (see Customizing Your Setup below).
-
----
-
-## Arch Linux / Omarchy Setup
-
-### Step 1: Install System Prerequisites
-
-On Omarchy, you need a working Nix installation. First, install Nix:
+Check what you actually have after the switch:
 
 ```bash
-curl --proto '=https' --tlsv1.2 -sSf -L https://install.determinate.systems/nix | sh -s -- install --no-confirm
+git config --get user.name
+git config --get user.email
 ```
 
-**What it does:**
-- Downloads the Determinate Nix installer
-- Installs Nix to `/nix` with the nix-daemon
-- Sets up necessary environment variables for your shell
-
-After installation, reload your shell:
-
-```bash
-. /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh
-```
-
-**What it does:**
-- Loads Nix environment variables into your current shell session
-- Makes the `nix` command available immediately (without closing/reopening terminal)
-
-Verify Nix is working:
-
-```bash
-nix --version
-```
-
-**Expected output:** `nix (Nix) 2.20.0` (version number may vary)
-
-### Step 2: Clone the Repository
-
-```bash
-git clone https://github.com/modzs/dotfiles.git
-cd dotfiles
-```
-
-**What it does:**
-- Downloads your dotfiles repo from GitHub into a new `dotfiles` directory
-- Changes into that directory so you can run the setup scripts
-
-### Step 3: Review Configuration Before Running
-
-Edit `flake.nix` if your username isn't `john`:
-
-```bash
-nano flake.nix
-```
-
-Look for:
-```nix
-user = "john";
-```
-
-And the machine name, if you want to change it (bootstrap will also prompt you for it):
-```nix
-hostName = "mac";
-```
-
-Update the user to match your actual Linux username:
-
-```bash
-whoami
-```
-
-**What it does:**
-- Shows your current username
-- You'll use this value in `flake.nix`
-
-Also review `home.nix` for the packages you want installed:
-
-```bash
-nano home.nix
-```
-
-Look for the `home.packages` section. Common packages included:
-- `ripgrep` - Fast file searcher
-- `fd` - Fast find alternative
-- `fzf` - Fuzzy finder
-- `jq` - JSON command-line processor
-- `lazygit` - Git UI
-- `neovim` - Text editor
-- `nerd-fonts.hack` - Font with icons
-
-Add or remove packages as needed (one per line).
-
-### Step 4: Run Bootstrap Script
-
-```bash
-./bootstrap.sh
-```
-
-**What it does (step by step):**
-
-1. **Detects you're on Linux**
-   - Identifies the operating system
-   - Sets the flake host to `omarchy`
-   
-2. **Checks Nix installation**
-   - Verifies Nix is already installed (you did this in Step 1)
-   - Skips if already present
-   
-3. **Symlinks the repo to `~/.dotfiles`**
-   - Creates a shortcut from your home directory to this repo
-   - Allows your config files to be edited in place without rebuilding
-   
-4. **Checks and fixes username**
-   - Compares the `user = "john"` in `flake.nix` with your actual Linux username
-   - Offers to update it automatically if they don't match
-
-5. **Prompts for the machine name**
-   - Shows the current hostname and the `hostName = "mac"` value in `flake.nix`
-   - Press Enter to keep the configured name, or type a new one to rewrite that line
-   - Applies it with `sudo hostnamectl set-hostname` (home-manager is user-level and can't set the hostname)
-
-6. **Runs the first build**
-   - Executes `home-manager switch --flake ~/.dotfiles#omarchy`
-   - Installs all Nix packages to your user profile
-   - Creates symlinks to config directories (nvim, wezterm, etc.)
-   - This takes 5-15 minutes depending on your internet
-
-**Expected output:**
-- You'll see lots of package download/build progress
-- At the end: "==> Done. Use ./rebuild.sh for future changes."
-
-### Step 5: Verify the Setup
-
-After bootstrap completes, verify everything installed correctly:
-
-Check Neovim:
-
-```bash
-nvim --version
-```
-
-**Expected output:** Neovim version info
-
-Check ripgrep:
-
-```bash
-rg --version
-```
-
-**Expected output:** ripgrep version
-
-Verify your home directory is correct:
-
-```bash
-echo $HOME
-```
-
-**Expected output:** `/home/yourname`
-
-### Step 6: Install System Packages (Optional)
-
-For packages that need to be system-wide (not just in your user profile), use pacman or AUR:
-
-```bash
-sudo pacman -S git zsh
-```
-
-**What it does:**
-- Installs `git` and `zsh` system-wide via pacman
-- These become available to all users on the system
-- Do this for packages that need to be available outside of Nix
-
-For AUR packages:
-
-```bash
-yay -S yay  # if not already installed
-yay -S package-name
-```
-
-**What it does:**
-- Uses the AUR helper `yay` to install packages from the Arch User Repository
-- Useful for packages not in the official Pacman repos
-
-### Step 7: Set Git Identity (One-Time)
-
-Git deliberately doesn't set your identity automatically. Configure it once:
-
-```bash
-git config --global user.name "Your Name"
-git config --global user.email "your@email.com"
-```
-
-Or edit `home.nix` directly to set it declaratively (see Customizing Your Setup below).
+**Expected output:** your own name and email. If you see anything else, edit the `programs.git.settings.user` attribute in `home.nix`, then run `./rebuild.sh`. See [Setting Git Identity Declaratively](#setting-git-identity-declaratively) below for the exact block.
 
 ---
 
@@ -314,7 +122,7 @@ Or edit `home.nix` directly to set it declaratively (see Customizing Your Setup 
 
 ### Making Changes
 
-Both macOS and Linux: Edit your config files directly in the repo. For example:
+Edit your config files directly in the repo. For example:
 
 ```bash
 # Edit your Neovim config
@@ -337,42 +145,23 @@ Find the `shellAliases` section and add/modify as needed.
 
 After editing config files that aren't symlinked (like `flake.nix`, `home.nix`, or package lists), rebuild:
 
-**macOS:**
 ```bash
 cd ~/.dotfiles
 ./rebuild.sh
 ```
 
 **What it does:**
-- Re-runs `darwin-rebuild switch` with your updated configuration
+- Re-runs `darwin-rebuild switch --flake ~/.dotfiles#mac` with your updated configuration
 - Installs/removes packages based on changes
-- Takes 1-5 minutes
-
-**Arch Linux / Omarchy:**
-```bash
-cd ~/.dotfiles
-./rebuild.sh
-```
-
-**What it does:**
-- Re-runs `home-manager switch` with your updated configuration
-- Installs/removes Nix packages based on changes
 - Takes 1-5 minutes
 
 ### Checking What Will Change
 
 Before applying, preview what will happen:
 
-**macOS:**
 ```bash
 cd ~/.dotfiles
 nix build .#darwinConfigurations.mac.system --dry-run
-```
-
-**Arch Linux / Omarchy:**
-```bash
-cd ~/.dotfiles
-nix build .#homeConfigurations.omarchy.activationPackage --dry-run
 ```
 
 **What it does:**
@@ -386,15 +175,13 @@ nix build .#homeConfigurations.omarchy.activationPackage --dry-run
 
 ### Adding a New Package
 
-**Both platforms:**
-
 Edit `home.nix`:
 
 ```bash
 nano ~/.dotfiles/home.nix
 ```
 
-Find the `home.packages` section (around line 11) and add your package:
+Find the `home.packages` attribute and add your package:
 
 ```nix
 home.packages = with pkgs; [
@@ -440,7 +227,7 @@ Edit `home.nix`:
 nano ~/.dotfiles/home.nix
 ```
 
-Find the `programs.git` section (around line 56) and update:
+Find the `programs.git` attribute and update:
 
 ```nix
 programs.git = {
@@ -465,7 +252,7 @@ Then apply:
 
 ### Adding Shell Aliases
 
-Edit `home.nix` and find `shellAliases` (around line 32):
+Edit `home.nix` and find the `programs.zsh.shellAliases` attribute:
 
 ```nix
 shellAliases = {
@@ -491,7 +278,7 @@ Then apply:
 - `myalias` would run `my command here` when typed
 - Available in your next shell session
 
-### macOS Only: Adding Homebrew Packages
+### Adding Homebrew Packages
 
 Edit `configuration-darwin.nix`:
 
@@ -515,6 +302,7 @@ Or find the `casks` section (GUI apps):
 casks = [
   "wezterm"
   "claude-code"
+  "ghostty"
   "my-app"  # <- add new cask here
 ];
 ```
@@ -565,6 +353,8 @@ EOF
 
 Both `.local` files are in `.gitignore` and won't be committed to the repo.
 
+**These files are inert until you wire them up.** Home Manager generates the live `~/.zshrc` and `~/.config/git/config` from `home.nix`; the `.zshrc` and `.gitconfig` at the repo root are reference templates that nothing installs. See "Employer provided machines ONLY" in README.md for the two `home.nix` hooks that make the `.local` files take effect.
+
 ---
 
 ## Troubleshooting
@@ -585,7 +375,6 @@ exec zsh
 
 Validate without applying:
 
-**macOS:**
 ```bash
 nix flake check --no-build
 ```
@@ -599,14 +388,8 @@ nix flake check --no-build
 
 Add `--show-trace` for more details:
 
-**macOS:**
 ```bash
 darwin-rebuild switch --flake ~/.dotfiles#mac --show-trace
-```
-
-**Arch Linux / Omarchy:**
-```bash
-nix run home-manager/release-26.05 -- switch --flake ~/.dotfiles#omarchy --show-trace
 ```
 
 **What it does:**
@@ -627,7 +410,7 @@ git status
 - Shows what will be committed
 - Nix needs all files to be tracked
 
-### Homebrew Packages Were Deleted (macOS)
+### Homebrew Packages Were Deleted
 
 The config has `cleanup = "zap"` enabled, which removes packages not in the list. If packages disappeared:
 
@@ -666,7 +449,7 @@ cd ~/.dotfiles
 **Key commands:**
 - `./rebuild.sh` - Apply configuration changes
 - `nano ~/.dotfiles/home.nix` - Edit home-manager config
-- `nano ~/.dotfiles/configuration-darwin.nix` - Edit macOS settings (macOS only)
+- `nano ~/.dotfiles/configuration-darwin.nix` - Edit macOS system settings and Homebrew packages
 - `nix search nixpkgs package-name` - Find a package to install
 - `exec zsh` - Reload shell after changes
 
@@ -674,14 +457,14 @@ cd ~/.dotfiles
 
 ## Quick Reference: What's Where
 
-| File | Purpose | Platforms |
-|------|---------|-----------|
-| `flake.nix` | Nix configuration entry point | Both |
-| `home.nix` | User packages, shell, editor config | Both |
-| `configuration-darwin.nix` | macOS system settings, Homebrew | macOS only |
-| `bootstrap.sh` | First-time setup script | Both |
-| `rebuild.sh` | Apply configuration changes | Both |
-| `home/` | Actual config files (symlinked) | Both |
+| File | Purpose |
+|------|---------|
+| `flake.nix` | Nix configuration entry point (the `mac` output) |
+| `home.nix` | User packages, shell, editor config |
+| `configuration-darwin.nix` | macOS system settings, Homebrew |
+| `bootstrap.sh` | First-time setup script |
+| `rebuild.sh` | Apply configuration changes |
+| `home/` | Actual config files (symlinked) |
 
 ---
 

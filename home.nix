@@ -1,4 +1,4 @@
-{ config, pkgs, user, isDarwin ? true, ... }:
+{ config, pkgs, user, ... }:
 
 let
   dotfiles = "${config.home.homeDirectory}/.dotfiles";
@@ -6,7 +6,7 @@ in
 
 {
   home.username = user;
-  home.homeDirectory = if isDarwin then "/Users/${user}" else "/home/${user}";
+  home.homeDirectory = "/Users/${user}";
   home.stateVersion = "24.11";
   home.packages = with pkgs; [
     # cli i use constantly

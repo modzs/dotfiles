@@ -10,19 +10,13 @@
     nix-homebrew.url = "github:zhaofengli/nix-homebrew";
   };
 
-  outputs = inputs@{ self, nix-darwin, nix-homebrew, home-manager, nixpkgs }:
+  outputs = { self, nix-darwin, nix-homebrew, home-manager, ... }:
     let
       user = "john";
       # Machine name. bootstrap.sh can rewrite this line for you.
-      # The flake output names below ("mac", "omarchy") are stable config
-      # identifiers and deliberately do not follow the machine name.
+      # The flake output name below ("mac") is a stable config identifier and
+      # deliberately does not follow the machine name.
       hostName = "mac";
-      mkHomeManagerConfig = { system, isDarwin }:
-        home-manager.lib.homeManagerConfiguration {
-          pkgs = nixpkgs.legacyPackages.${system};
-          extraSpecialArgs = { inherit user isDarwin; };
-          modules = [ ./home.nix ];
-        };
     in
     {
       darwinConfigurations."mac" = nix-darwin.lib.darwinSystem {
@@ -34,15 +28,10 @@
           {
             home-manager.useGlobalPkgs = true;
             home-manager.useUserPackages = true;
-            home-manager.extraSpecialArgs = { inherit user; isDarwin = true; };
+            home-manager.extraSpecialArgs = { inherit user; };
             home-manager.users.${user} = import ./home.nix;
           }
         ];
-      };
-
-      homeConfigurations."omarchy" = mkHomeManagerConfig {
-        system = "x86_64-linux";
-        isDarwin = false;
       };
     };
 }

@@ -37,17 +37,22 @@ body:
         3. See ...
     validations:
       required: true
-  - type: dropdown
-    id: environment
+  - type: input
+    id: macos-version
     attributes:
-      label: Environment
-      description: Where did you see the bug?
-      multiple: true
+      label: macOS version
+      description: The macOS version you saw the bug on.
+      placeholder: "Example: 15.3.1"
+    validations:
+      required: true
+  - type: dropdown
+    id: cpu-architecture
+    attributes:
+      label: Mac hardware
+      description: Which CPU does this Mac have?
       options:
-        - macOS
-        - Linux
-        - WSL
-        - Other
+        - Apple Silicon
+        - Intel
     validations:
       required: true
   - type: input
