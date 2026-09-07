@@ -92,12 +92,14 @@ echo "==> Step 5: first build and switch"
 # Resolve the absolute path first and invoke that instead - do not collapse this
 # to `sudo nix run`.
 NIX_BIN="$(command -v nix)"
+# If nix is not on this shell's PATH yet, the script stops right here with no
+# message: the failing command substitution aborts under set -euo pipefail
+# before the switch below ever runs. Open a new terminal (Determinate adds nix
+# to new shells' PATH) and re-run ./bootstrap.sh.
 # "mac" is the flake output name, a stable config identifier. It is deliberately
 # separate from the machine name set in step 4; if you rename it, change it in
 # flake.nix and rebuild.sh too.
 sudo "$NIX_BIN" run github:nix-darwin/nix-darwin/nix-darwin-26.05#darwin-rebuild -- \
   switch --flake ~/.dotfiles#mac
-# If this still fails with "nix: command not found", open a new terminal
-# (Determinate adds nix to new shells' PATH) and re-run ./bootstrap.sh.
 
 echo "==> Done. Use ./rebuild.sh for future changes."
