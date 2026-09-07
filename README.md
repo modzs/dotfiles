@@ -92,7 +92,7 @@ Before you run it: review "Make it yours" below and adjust settings as needed.
 2. Symlinks this repo to `~/.dotfiles`.
 3. Checks the `user` configured in `flake.nix` against your actual username, and offers to fix it if they differ.
 4. Prompts for the machine name and writes it to the `hostName` line in `flake.nix`. Press Enter to keep the configured name.
-5. Prompts for the git name and email you commit with and writes them to `~/.gitconfig.local`, outside this repo. Press Enter to keep the identity you already have.
+5. Prompts for the git name and email you commit with and writes them to `~/.gitconfig.local`, outside this repo. The only default offered is what that file already says, so press Enter to keep it - on a machine without it, the prompt starts empty.
 6. Runs the first build and switch with `darwin-rebuild switch --flake ~/.dotfiles#mac`.
 
 Before any of that it checks `~/.dotfiles`. If something is already there that

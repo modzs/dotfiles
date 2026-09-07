@@ -14,8 +14,10 @@
 #   answered n, a valid machine name, an invalid machine name, and empty input
 #   keeping the configured default;
 # - the git identity prompt: a new identity written to ~/.gitconfig.local, empty
-#   input keeping the identity already there, an invalid email, and an existing
-#   ~/.gitconfig.local keeping its unrelated contents.
+#   input keeping the identity already there, a name typed without an email, a
+#   malformed email that re-prompts instead of aborting, no default offered from
+#   the wider git config, and an existing ~/.gitconfig.local keeping its
+#   unrelated contents.
 set -u
 
 # shellcheck source=tests/lib.sh
@@ -358,8 +360,12 @@ test_machine_name_empty_keeps_default() {
 # --- git identity (written to ~/.gitconfig.local, never to the repo) ----------
 
 # Feed the whole prompt sequence of a run whose username already matches:
-# machine name, git name, git email.
-identity_input() { printf '%s\n%s\n%s\n' "$1" "$2" "$3"; }
+# machine name, git name, then one line per git email prompt (the email prompt
+# re-asks after a malformed answer, so it can consume more than one).
+identity_input() {
+  local line
+  for line in "$@"; do printf '%s\n' "$line"; done
+}
 
 gitconfig_local_value() {
   git config --file "$1/home/.gitconfig.local" --get "$2" 2>/dev/null || true
@@ -375,9 +381,10 @@ test_identity_written_to_gitconfig_local() {
     || fail "the git name was not written to ~/.gitconfig.local"
   [ "$(gitconfig_local_value "$sb" user.email)" = "ada@example.com" ] \
     || fail "the git email was not written to ~/.gitconfig.local"
-  # The whole point: the identity must never land in the tracked config.
-  assert_not_contains "$(cat "$sb/repo/home.nix")" "ada@example.com" \
-    "bootstrap wrote the git identity into home.nix"
+  # The whole point: the identity must never land in the tracked config, in any
+  # spelling - so compare the whole file against the pristine tracked one.
+  cmp -s "$sb/repo/home.nix" "$ROOT/home.nix" \
+    || fail "bootstrap modified the tracked home.nix while setting the git identity"
 
   pass "identity: a new name and email are written to ~/.gitconfig.local"
 }
@@ -392,7 +399,7 @@ test_identity_empty_keeps_existing() {
   [ "$status" = 0 ] || fail "bootstrap failed on an empty git identity: $(sandbox_out "$sb")"
   assert_contains "$(sandbox_out "$sb")" "currently commits as \"Grace Hopper <grace@example.com>\"" \
     "bootstrap did not report the existing identity before prompting"
-  assert_contains "$(sandbox_out "$sb")" "Using \"Grace Hopper <grace@example.com>\"" \
+  assert_contains "$(sandbox_out "$sb")" "This machine commits as \"Grace Hopper <grace@example.com>\"" \
     "bootstrap did not keep the existing identity on empty input"
   [ "$(gitconfig_local_value "$sb" user.name)" = "Grace Hopper" ] \
     || fail "empty input changed the existing git name"
@@ -424,21 +431,67 @@ test_identity_preserves_unrelated_gitconfig_local() {
   pass "identity: an existing ~/.gitconfig.local keeps its unrelated settings"
 }
 
-test_identity_invalid_email_aborts() {
+# Nix is installed and flake.nix rewritten by the time this prompt runs, so a
+# typo must cost a re-answer, not a whole re-run.
+test_identity_malformed_email_reprompts() {
   local sb status
   sb=$(make_sandbox)
-  status=$(run_bootstrap "$sb" repo "$(identity_input '' 'Ada Lovelace' 'not-an-email')")
+  status=$(run_bootstrap "$sb" repo \
+    "$(identity_input '' 'Ada Lovelace' 'not-an-email' 'ada@example.com')")
 
-  [ "$status" != 0 ] || fail "bootstrap accepted an invalid git email"
-  assert_contains "$(sandbox_out "$sb")" "is not a valid email address" \
+  [ "$status" = 0 ] || fail "bootstrap aborted on a malformed git email: $(sandbox_out "$sb")"
+  assert_contains "$(sandbox_out "$sb")" "does not look like an email address" \
     "bootstrap did not explain why the email was rejected"
-  if [ -e "$sb/home/.gitconfig.local" ]; then
-    fail "bootstrap wrote ~/.gitconfig.local despite an invalid email"
-  fi
-  assert_not_contains "$(sandbox_calls "$sb")" "sudo " \
-    "bootstrap reached sudo with an invalid git email"
+  [ "$(gitconfig_local_value "$sb" user.email)" = "ada@example.com" ] \
+    || fail "the email typed at the second prompt was not written"
+  assert_contains "$(sandbox_calls "$sb")" "switch --flake $sb/home/.dotfiles#mac" \
+    "bootstrap did not reach the switch after a malformed email"
 
-  pass "identity: an invalid email aborts before writing ~/.gitconfig.local"
+  pass "identity: a malformed email re-prompts instead of aborting the run"
+}
+
+# A value the user typed must never vanish: git itself reports the missing half
+# at commit time, which beats silently discarding the half that was given.
+test_identity_name_without_email_is_kept() {
+  local sb status
+  sb=$(make_sandbox)
+  status=$(run_bootstrap "$sb" repo "$(identity_input '' 'Ada Lovelace' '')")
+
+  [ "$status" = 0 ] || fail "bootstrap failed on a name without an email: $(sandbox_out "$sb")"
+  [ "$(gitconfig_local_value "$sb" user.name)" = "Ada Lovelace" ] \
+    || fail "bootstrap discarded a git name typed without an email"
+  [ -z "$(gitconfig_local_value "$sb" user.email)" ] \
+    || fail "bootstrap invented a git email that was never typed"
+  assert_contains "$(sandbox_out "$sb")" "Wrote user.name to ~/.gitconfig.local." \
+    "bootstrap did not report which identity key it wrote"
+
+  pass "identity: a name typed without an email is still written"
+}
+
+# The prompt default comes from ~/.gitconfig.local alone. Anything wider would
+# re-propose whoever configured this machine before - the exact misattribution
+# taking the identity out of the tracked config is meant to end.
+test_identity_offers_no_default_from_global_config() {
+  local sb status
+  sb=$(make_sandbox)
+  cat >"$sb/home/.gitconfig" <<'GITCONFIG'
+[user]
+	name = Previous Owner
+	email = previous@example.com
+GITCONFIG
+  status=$(run_bootstrap "$sb" repo "$(identity_input '' '' '')")
+
+  [ "$status" = 0 ] || fail "bootstrap failed with no ~/.gitconfig.local: $(sandbox_out "$sb")"
+  assert_contains "$(sandbox_out "$sb")" "~/.gitconfig.local sets no git identity yet" \
+    "bootstrap claimed an identity that ~/.gitconfig.local does not hold"
+  assert_not_contains "$(sandbox_out "$sb")" "Previous Owner" \
+    "bootstrap offered the wider git config's identity as the prompt default"
+  [ -z "$(gitconfig_local_value "$sb" user.name)" ] \
+    || fail "empty input copied another identity into ~/.gitconfig.local"
+  [ -z "$(gitconfig_local_value "$sb" user.email)" ] \
+    || fail "empty input copied another identity into ~/.gitconfig.local"
+
+  pass "identity: no default is taken from outside ~/.gitconfig.local"
 }
 
 test_link_created_when_absent
@@ -458,6 +511,8 @@ test_machine_name_empty_keeps_default
 test_identity_written_to_gitconfig_local
 test_identity_empty_keeps_existing
 test_identity_preserves_unrelated_gitconfig_local
-test_identity_invalid_email_aborts
+test_identity_malformed_email_reprompts
+test_identity_name_without_email_is_kept
+test_identity_offers_no_default_from_global_config
 
 test_summary

@@ -117,7 +117,7 @@ one; see "Migrating a machine that already had Homebrew Node" in README.md.
 
 ### Step 5: Fix the Git Identity
 
-`home.nix` ships with a concrete git name and email already filled in - the repo owner's, not yours. Until you change it, every commit you make on this machine is attributed to the wrong person.
+Nothing in this repo sets a git name or email. `bootstrap.sh` step 5 prompts for yours and writes it to the untracked `~/.gitconfig.local`, which `home.nix` pulls in through `programs.git.includes`. If you skipped that prompt, this machine has no identity and git will refuse to commit.
 
 Check what you actually have after the switch:
 
@@ -126,7 +126,7 @@ git config --get user.name
 git config --get user.email
 ```
 
-**Expected output:** your own name and email. If you see anything else, edit the `programs.git.settings.user` attribute in `home.nix`, then run `./rebuild.sh`. See [Setting Git Identity Declaratively](#setting-git-identity-declaratively) below for the exact block.
+**Expected output:** your own name and email. If you see nothing, or somebody else's, fix it in `~/.gitconfig.local` - never in this repo. See [Setting the Git Identity](#setting-the-git-identity) below for the exact commands.
 
 ---
 
@@ -231,35 +231,19 @@ nix search nixpkgs git
 - Searches for packages matching "git" in nixpkgs
 - Shows available versions and descriptions
 
-### Setting Git Identity Declaratively
+### Setting the Git Identity
 
-Edit `home.nix`:
-
-```bash
-nano ~/.dotfiles/home.nix
-```
-
-Find the `programs.git` attribute and update:
-
-```nix
-programs.git = {
-  enable = true;
-  settings.user = {
-    name = "Your Name";
-    email = "your@email.com";
-  };
-};
-```
-
-Then apply:
+The identity lives in `~/.gitconfig.local`, never in this repo:
 
 ```bash
-./rebuild.sh
+git config --file ~/.gitconfig.local user.name "Your Name"
+git config --file ~/.gitconfig.local user.email "your@email.com"
 ```
 
 **What it does:**
-- Sets your git name and email configuration
-- Applied every time you rebuild
+- Sets your git name and email in the untracked `~/.gitconfig.local`
+- Takes effect at once - `home.nix` already includes that file, so no rebuild is needed
+- Keeps your identity out of a repo that gets cloned and forked
 - No need to manually `git config` again
 
 ### Adding Shell Aliases
@@ -385,7 +369,7 @@ EOF
 
 **What it does:**
 - Creates a local git config file for work identity
-- `programs.git.includes` in `home.nix` pulls it in after the identity set there, so it overrides your name and email
+- `programs.git.includes` in `home.nix` pulls it in, and `home.nix` sets no identity of its own, so this file is the name and email you commit with
 - Not tracked by git (stays private to your machine)
 
 Similarly, create `~/.zshrc.local` for work-specific environment variables:
@@ -404,7 +388,7 @@ EOF
 
 Both `.local` files are in `.gitignore` and won't be committed to the repo.
 
-No further wiring is needed: `home.nix` already sources `~/.zshrc.local` from `programs.zsh.initContent` and pulls in `~/.gitconfig.local` through `programs.git.includes`. Home Manager writes that include after the identity set in `home.nix`, so `~/.gitconfig.local` overrides your name and email on a work machine, and is simply ignored when it isn't there.
+No further wiring is needed: `home.nix` already sources `~/.zshrc.local` from `programs.zsh.initContent` and pulls in `~/.gitconfig.local` through `programs.git.includes`. `home.nix` sets no name or email itself, so `~/.gitconfig.local` is the identity you commit with on a work machine, and git simply has none when the file isn't there.
 
 ---
 

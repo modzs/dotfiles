@@ -87,33 +87,64 @@ echo "==> Step 5: personalize the git identity"
 # programs.git.includes. Writing the two keys with `git config --file` leaves
 # anything else already in the file - work-machine overrides, say - untouched.
 GITCONFIG_LOCAL="$HOME/.gitconfig.local"
-# Prefer what that file already says; fall back to whatever identity this
-# machine resolves today, so a re-run can be answered with two Enters.
+# Prefer what that file already says, and offer nothing otherwise: a default
+# read from this machine's wider git config would propose whoever configured it
+# before - including the identity this repo deliberately stopped shipping.
 GIT_NAME="$(git config --file "$GITCONFIG_LOCAL" --get user.name 2>/dev/null || true)"
 GIT_EMAIL="$(git config --file "$GITCONFIG_LOCAL" --get user.email 2>/dev/null || true)"
-[ -n "$GIT_NAME" ] || GIT_NAME="$(git config --global --get user.name 2>/dev/null || true)"
-[ -n "$GIT_EMAIL" ] || GIT_EMAIL="$(git config --global --get user.email 2>/dev/null || true)"
 echo "    Commits from this machine are attributed to this identity."
 echo "    It is written to ~/.gitconfig.local, which is outside this repo and never committed."
 if [ -n "$GIT_NAME" ] || [ -n "$GIT_EMAIL" ]; then
-  echo "    This machine currently commits as \"$GIT_NAME <$GIT_EMAIL>\"."
+  echo "    ~/.gitconfig.local currently commits as \"$GIT_NAME <$GIT_EMAIL>\"."
 else
-  echo "    This machine has no git identity configured yet."
+  echo "    ~/.gitconfig.local sets no git identity yet."
 fi
 read -r -p "    Git name [$GIT_NAME]: " NEW_GIT_NAME || true
 NEW_GIT_NAME="${NEW_GIT_NAME:-$GIT_NAME}"
-read -r -p "    Git email [$GIT_EMAIL]: " NEW_GIT_EMAIL || true
-NEW_GIT_EMAIL="${NEW_GIT_EMAIL:-$GIT_EMAIL}"
-if [ -n "$NEW_GIT_EMAIL" ] && ! [[ "$NEW_GIT_EMAIL" =~ ^[^[:space:]@]+@[^[:space:]@]+$ ]]; then
-  echo "    \"$NEW_GIT_EMAIL\" is not a valid email address."
-  exit 1
+# Nix is installed and flake.nix is already rewritten by now, so a typo here
+# must never abort the run. An empty answer is a deliberate skip: home.nix's
+# include handles an absent ~/.gitconfig.local. Anything else only has to look
+# like an address - git accepts any string, and rejecting an unusual but real
+# one would be worse than the typo this catches.
+while :; do
+  # A read that hits end of input still fills the variable with the last
+  # unterminated line, so its answer is validated like any other - there is
+  # just nothing left to re-prompt with.
+  MORE_INPUT=1
+  read -r -p "    Git email [$GIT_EMAIL]: " NEW_GIT_EMAIL || MORE_INPUT=0
+  NEW_GIT_EMAIL="${NEW_GIT_EMAIL:-$GIT_EMAIL}"
+  [ -n "$NEW_GIT_EMAIL" ] || break
+  if [[ "$NEW_GIT_EMAIL" =~ ^[^[:space:]@]+@[^[:space:]@]+$ ]]; then
+    break
+  fi
+  echo "    \"$NEW_GIT_EMAIL\" does not look like an email address (name@host)."
+  echo "    Type it again, or press Enter to leave the email unset."
+  # Never re-offer a default the check just rejected: with no input left that
+  # would loop forever, and with a terminal it would re-propose the typo.
+  GIT_EMAIL=""
+  if [ "$MORE_INPUT" = 0 ]; then
+    NEW_GIT_EMAIL=""
+    break
+  fi
+done
+# Each key is written on its own: a name typed without an email is still the
+# user's answer, and git names the missing half itself at commit time.
+WROTE=""
+if [ -n "$NEW_GIT_NAME" ]; then
+  git config --file "$GITCONFIG_LOCAL" user.name "$NEW_GIT_NAME"
+  WROTE="user.name"
+fi
+if [ -n "$NEW_GIT_EMAIL" ]; then
+  git config --file "$GITCONFIG_LOCAL" user.email "$NEW_GIT_EMAIL"
+  WROTE="${WROTE:+$WROTE and }user.email"
+fi
+if [ -n "$WROTE" ]; then
+  echo "    Wrote $WROTE to ~/.gitconfig.local."
 fi
 if [ -n "$NEW_GIT_NAME" ] && [ -n "$NEW_GIT_EMAIL" ]; then
-  git config --file "$GITCONFIG_LOCAL" user.name "$NEW_GIT_NAME"
-  git config --file "$GITCONFIG_LOCAL" user.email "$NEW_GIT_EMAIL"
-  echo "    Using \"$NEW_GIT_NAME <$NEW_GIT_EMAIL>\" from ~/.gitconfig.local."
+  echo "    This machine commits as \"$NEW_GIT_NAME <$NEW_GIT_EMAIL>\"."
 else
-  echo "    No git identity set. Git will refuse to commit until you add one:"
+  echo "    Git needs both a name and an email to commit. Set what is missing with:"
   echo "      git config --file ~/.gitconfig.local user.name \"Your Name\""
   echo "      git config --file ~/.gitconfig.local user.email \"you@example.com\""
 fi
