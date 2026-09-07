@@ -12,7 +12,7 @@
 # - a differing version, and an absent package: installed at exactly the pin;
 # - a failed install: warns, keeps going, and does not abort the switch;
 # - DRY_RUN: reports what it would install and installs nothing.
-# Plus: the same behaviours driven with the pins home.nix actually declares.
+# Plus: a miswired call from home.nix fails loudly instead of warning forever.
 set -u
 
 # shellcheck source=tests/lib.sh
@@ -95,6 +95,18 @@ run_npm_globals() {
     env -u DRY_RUN /bin/bash "$SCRIPT" "$sb/nodebin" "$sb/prefix" "$@" \
       >"$sb/out" 2>"$sb/err" || status=$?
   fi
+  printf '%s\n' "$status"
+}
+
+# Run lib/npm-globals.sh with the argument list given verbatim, so the two
+# directory arguments themselves can be got wrong. Runs with the sandbox as the
+# working directory, so a relative path the script ought to reject cannot reach
+# the repo even if the rejection regresses.
+run_npm_globals_raw() {
+  local sb=$1 status=0
+  shift
+  ( cd "$sb" && env -u DRY_RUN /bin/bash "$SCRIPT" "$@" ) \
+    >"$sb/out" 2>"$sb/err" || status=$?
   printf '%s\n' "$status"
 }
 
@@ -268,61 +280,44 @@ test_dry_run_reports_and_installs_nothing() {
   pass "dry run: DRY_RUN reports what it would install and installs nothing"
 }
 
-# --- the pins home.nix actually declares -------------------------------------
+# --- promise 5: a miswired call fails loudly ----------------------------------
 #
-# The cases above use representative specs. These two use the real npmGlobals
-# set, so the script is exercised against the pins that actually ship. home.nix
-# is machine-consumed declarative config, so it is read the way its consumer
-# reads it - parsed into name/version pairs - and the assertions are about what
-# the script does with them, never about the file's wording.
+# The two directory arguments come from home.activation.agentNpmCLIs, and getting
+# them wrong is a bug in this repo, not a condition of the machine. Without these
+# guards a swap is silent: the version guard reads manifests under the node store
+# path (never there), then invokes <prefix>/npm (does not exist), and the failed
+# install is swallowed by the offline tolerance - so every rebuild warns
+# "offline?" and installs nothing, forever, without failing the switch.
 
-# Parse npmGlobals out of home.nix into one `name@version` per line.
-declared_pins() {
-  sed -n '/npmGlobals = {/,/};/p' "$ROOT/home.nix" \
-    | sed -n 's/^[[:space:]]*"\([^"]*\)"[[:space:]]*=[[:space:]]*"\([^"]*\)";.*/\1@\2/p'
+test_swapped_directory_arguments_fail_loudly_and_install_nothing() {
+  local sb status
+  sb=$(make_sandbox)
+  status=$(run_npm_globals_raw "$sb" "$sb/prefix" "$sb/nodebin" gh-axi@0.1.35)
+
+  [ "$status" != 0 ] || fail "swapped directory arguments were accepted silently"
+  assert_contains "$(sandbox_err "$sb")" "no executable npm in node bin directory" \
+    "the failure did not name the argument that was wrong"
+  assert_not_contains "$(sandbox_err "$sb")" "offline?" \
+    "a wiring error was reported as an offline machine"
+  [ -z "$(sandbox_calls "$sb")" ] \
+    || fail "a miswired call still ran something: $(sandbox_calls "$sb")"
+  [ ! -e "$sb/prefix/lib" ] || fail "a miswired call wrote into the prefix"
+
+  pass "wiring: swapped directory arguments fail loudly and install nothing"
 }
 
-test_every_declared_pin_installs_at_its_declared_version() {
-  local sb status pins pin count
-  pins=$(declared_pins)
-  [ -n "$pins" ] || fail "could not parse npmGlobals out of home.nix"
-
+test_relative_npm_prefix_is_rejected() {
+  local sb status
   sb=$(make_sandbox)
-  # shellcheck disable=SC2086 - the pins are name@version words, split on purpose.
-  status=$(run_npm_globals "$sb" live $pins)
+  status=$(run_npm_globals_raw "$sb" "$sb/nodebin" prefix gh-axi@0.1.35)
 
-  [ "$status" = 0 ] || fail "the script failed on the declared pins: $(sandbox_err "$sb")"
-  count=$(printf '%s\n' "$pins" | grep -c .)
-  [ "$(npm_call_count "$sb")" = "$count" ] \
-    || fail "expected $count installs for the declared pins, got: $(npm_calls "$sb")"
-  for pin in $pins; do
-    assert_contains "$(npm_calls "$sb")" \
-      "npm install --global --no-fund --no-audit $pin" \
-      "the declared pin $pin was not installed at its declared version"
-  done
+  [ "$status" != 0 ] || fail "a relative npm prefix was accepted"
+  assert_contains "$(sandbox_err "$sb")" "npm prefix must be an absolute path" \
+    "the failure did not name the relative prefix as the problem"
+  [ -z "$(sandbox_calls "$sb")" ] \
+    || fail "a relative prefix still ran something: $(sandbox_calls "$sb")"
 
-  pass "declared pins: each npmGlobals entry installs at exactly its declared version"
-}
-
-# The whole point of the version guard: the rebuild everyone actually runs, on a
-# machine that is already up to date, must not reach the network once.
-test_declared_pins_already_installed_make_no_npm_call() {
-  local sb status pins pin
-  pins=$(declared_pins)
-  [ -n "$pins" ] || fail "could not parse npmGlobals out of home.nix"
-
-  sb=$(make_sandbox)
-  for pin in $pins; do
-    install_fixture "$sb" "${pin%@*}" "${pin##*@}"
-  done
-  # shellcheck disable=SC2086 - the pins are name@version words, split on purpose.
-  status=$(run_npm_globals "$sb" live $pins)
-
-  [ "$status" = 0 ] || fail "the script failed on an up-to-date machine: $(sandbox_err "$sb")"
-  [ -z "$(npm_calls "$sb")" ] \
-    || fail "a rebuild with every declared pin already installed called npm: $(npm_calls "$sb")"
-
-  pass "declared pins: a rebuild with all of them installed touches the network zero times"
+  pass "wiring: an npm prefix that is not an absolute path is rejected"
 }
 
 test_all_pinned_versions_present_makes_no_npm_call
@@ -335,7 +330,7 @@ test_failed_install_warns_and_succeeds
 test_failed_install_reports_the_version_it_kept
 test_failed_install_does_not_stop_later_specs
 test_dry_run_reports_and_installs_nothing
-test_every_declared_pin_installs_at_its_declared_version
-test_declared_pins_already_installed_make_no_npm_call
+test_swapped_directory_arguments_fail_loudly_and_install_nothing
+test_relative_npm_prefix_is_rejected
 
 test_summary

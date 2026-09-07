@@ -67,9 +67,11 @@ in
   # rebuild with nothing to change touches the network zero times, and a failed
   # install warns instead of aborting the switch.
   home.activation.agentNpmCLIs = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
-    # Home Manager sets DRY_RUN as a plain shell variable, so a child process only
-    # inherits it when we export it here. Exporting only when it is set keeps the
-    # script's `set, even if empty` test meaning exactly what it did inline.
+    # DRY_RUN reaches activation from the caller's environment, already exported,
+    # so this is a no-op today. It is here so that a Home Manager which set it as
+    # a plain shell variable could not silently turn a dry run into real installs
+    # in the child. Exporting only when it is set keeps the script's
+    # `set, even if empty` test meaning exactly what it did inline.
     if [ -n "''${DRY_RUN+x}" ]; then export DRY_RUN; fi
 
     ${pkgs.bash}/bin/bash ${./lib/npm-globals.sh} \
