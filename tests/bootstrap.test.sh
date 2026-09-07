@@ -559,6 +559,8 @@ GITCONFIG
   status=$(run_bootstrap "$sb" repo "$(identity_input '' '' '')")
 
   [ "$status" = 0 ] || fail "bootstrap failed with no ~/.gitconfig.local: $(sandbox_out "$sb")"
+  # The tilde is part of the message bootstrap prints, not a path to expand.
+  # shellcheck disable=SC2088
   assert_contains "$(sandbox_out "$sb")" "~/.gitconfig.local holds no user.name and no user.email" \
     "bootstrap claimed an identity that ~/.gitconfig.local does not hold"
   assert_not_contains "$(sandbox_out "$sb")" "currently commits as" \
