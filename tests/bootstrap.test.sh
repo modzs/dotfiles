@@ -15,7 +15,8 @@
 #   keeping the configured default;
 # - the git identity prompt: a new identity written to ~/.gitconfig.local, empty
 #   input keeping the identity already there, a name typed without an email, a
-#   malformed email that re-prompts instead of aborting, no default offered from
+#   malformed email that re-prompts instead of aborting, a mistyped email
+#   abandoned on a machine that already has an identity, no default offered from
 #   the wider git config, and an existing ~/.gitconfig.local keeping its
 #   unrelated contents.
 set -u
@@ -464,8 +465,31 @@ test_identity_name_without_email_is_kept() {
     || fail "bootstrap invented a git email that was never typed"
   assert_contains "$(sandbox_out "$sb")" "Wrote user.name to ~/.gitconfig.local." \
     "bootstrap did not report which identity key it wrote"
+  assert_contains "$(sandbox_out "$sb")" "holds user.name \"Ada Lovelace\" and no user.email" \
+    "bootstrap did not name the half ~/.gitconfig.local is missing"
 
   pass "identity: a name typed without an email is still written"
+}
+
+# The closing status has to describe ~/.gitconfig.local, not what was typed:
+# abandoning a mistyped email leaves the identity already in the file intact, so
+# claiming none is set would be a false report of the machine's state.
+test_identity_abandoned_email_reports_file_state() {
+  local sb status
+  sb=$(make_sandbox)
+  git config --file "$sb/home/.gitconfig.local" user.name "Grace Hopper"
+  git config --file "$sb/home/.gitconfig.local" user.email "grace@example.com"
+  status=$(run_bootstrap "$sb" repo "$(identity_input '' '' 'grace@' '')")
+
+  [ "$status" = 0 ] || fail "bootstrap failed on an abandoned email: $(sandbox_out "$sb")"
+  [ "$(gitconfig_local_value "$sb" user.email)" = "grace@example.com" ] \
+    || fail "abandoning the email prompt changed the email already in ~/.gitconfig.local"
+  assert_contains "$(sandbox_out "$sb")" "This machine commits as \"Grace Hopper <grace@example.com>\"" \
+    "bootstrap did not report the identity ~/.gitconfig.local actually holds"
+  assert_not_contains "$(sandbox_out "$sb")" "Git will refuse to commit" \
+    "bootstrap claimed no identity was set while ~/.gitconfig.local held a complete one"
+
+  pass "identity: an abandoned email still reports the identity the file holds"
 }
 
 # The prompt default comes from ~/.gitconfig.local alone. Anything wider would
@@ -513,6 +537,7 @@ test_identity_empty_keeps_existing
 test_identity_preserves_unrelated_gitconfig_local
 test_identity_malformed_email_reprompts
 test_identity_name_without_email_is_kept
+test_identity_abandoned_email_reports_file_state
 test_identity_offers_no_default_from_global_config
 
 test_summary

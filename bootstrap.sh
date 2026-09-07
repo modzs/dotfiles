@@ -107,11 +107,7 @@ NEW_GIT_NAME="${NEW_GIT_NAME:-$GIT_NAME}"
 # like an address - git accepts any string, and rejecting an unusual but real
 # one would be worse than the typo this catches.
 while :; do
-  # A read that hits end of input still fills the variable with the last
-  # unterminated line, so its answer is validated like any other - there is
-  # just nothing left to re-prompt with.
-  MORE_INPUT=1
-  read -r -p "    Git email [$GIT_EMAIL]: " NEW_GIT_EMAIL || MORE_INPUT=0
+  read -r -p "    Git email [$GIT_EMAIL]: " NEW_GIT_EMAIL || true
   NEW_GIT_EMAIL="${NEW_GIT_EMAIL:-$GIT_EMAIL}"
   [ -n "$NEW_GIT_EMAIL" ] || break
   if [[ "$NEW_GIT_EMAIL" =~ ^[^[:space:]@]+@[^[:space:]@]+$ ]]; then
@@ -122,10 +118,6 @@ while :; do
   # Never re-offer a default the check just rejected: with no input left that
   # would loop forever, and with a terminal it would re-propose the typo.
   GIT_EMAIL=""
-  if [ "$MORE_INPUT" = 0 ]; then
-    NEW_GIT_EMAIL=""
-    break
-  fi
 done
 # Each key is written on its own: a name typed without an email is still the
 # user's answer, and git names the missing half itself at commit time.
@@ -141,10 +133,23 @@ fi
 if [ -n "$WROTE" ]; then
   echo "    Wrote $WROTE to ~/.gitconfig.local."
 fi
-if [ -n "$NEW_GIT_NAME" ] && [ -n "$NEW_GIT_EMAIL" ]; then
-  echo "    This machine commits as \"$NEW_GIT_NAME <$NEW_GIT_EMAIL>\"."
+# Report the file, not the keystrokes. An answer abandoned mid-prompt leaves
+# whatever was already there, so only a fresh read says what this machine will
+# actually commit as.
+FINAL_GIT_NAME="$(git config --file "$GITCONFIG_LOCAL" --get user.name 2>/dev/null || true)"
+FINAL_GIT_EMAIL="$(git config --file "$GITCONFIG_LOCAL" --get user.email 2>/dev/null || true)"
+if [ -n "$FINAL_GIT_NAME" ] && [ -n "$FINAL_GIT_EMAIL" ]; then
+  echo "    This machine commits as \"$FINAL_GIT_NAME <$FINAL_GIT_EMAIL>\"."
+elif [ -n "$FINAL_GIT_NAME" ]; then
+  echo "    ~/.gitconfig.local holds user.name \"$FINAL_GIT_NAME\" and no user.email."
+  echo "    Git will refuse to commit until you add one:"
+  echo "      git config --file ~/.gitconfig.local user.email \"you@example.com\""
+elif [ -n "$FINAL_GIT_EMAIL" ]; then
+  echo "    ~/.gitconfig.local holds user.email \"$FINAL_GIT_EMAIL\" and no user.name."
+  echo "    Git will refuse to commit until you add one:"
+  echo "      git config --file ~/.gitconfig.local user.name \"Your Name\""
 else
-  echo "    Git needs both a name and an email to commit. Set what is missing with:"
+  echo "    ~/.gitconfig.local sets no identity. Git will refuse to commit until you add one:"
   echo "      git config --file ~/.gitconfig.local user.name \"Your Name\""
   echo "      git config --file ~/.gitconfig.local user.email \"you@example.com\""
 fi

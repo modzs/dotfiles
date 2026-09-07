@@ -76,7 +76,12 @@ Also check `configuration-darwin.nix` for:
    - Press Enter to keep the configured name, or type a new one to rewrite that line
    - nix-darwin applies it to `HostName`, `LocalHostName`, and `ComputerName` during the switch
 
-5. **Runs the first build**
+5. **Prompts for the git identity**
+   - Shows what `~/.gitconfig.local` currently commits as, or that it holds no identity yet
+   - Press Enter to keep what that file already says, or type a name and an email to write them
+   - The identity goes to `~/.gitconfig.local`, outside this repo, never into the tracked config
+
+6. **Runs the first build**
    - Executes `darwin-rebuild switch` to apply your configuration
    - Installs packages, configures system settings, creates symlinks
    - This takes 5-15 minutes depending on your internet and machine
@@ -244,7 +249,6 @@ git config --file ~/.gitconfig.local user.email "your@email.com"
 - Sets your git name and email in the untracked `~/.gitconfig.local`
 - Takes effect at once - `home.nix` already includes that file, so no rebuild is needed
 - Keeps your identity out of a repo that gets cloned and forked
-- No need to manually `git config` again
 
 ### Adding Shell Aliases
 
