@@ -46,27 +46,19 @@ alias workvpn="openvpn --config ~/work.ovpn"
 ```
 Running `git status` inside your dotfiles folder ignores these `.local` files entirely. You can freely pull shared updates with `git pull` without merge conflicts or leaking work data.
 
-**Wire the hooks up first.** The `.zshrc` and `.gitconfig` at the root of this repo are reference templates - `home.nix` does not install them anywhere. Home Manager generates the live `~/.zshrc` and `~/.config/git/config` from `home.nix`, so creating the two `.local` files does nothing until you add the hooks to `home.nix`:
+Both hooks are already wired into `home.nix`, so creating the files is all you need to do:
 
-```nix
-# add the source line to the existing programs.zsh.initContent block
-initContent = ''
-  bindkey '^f' autosuggest-accept
-  [[ -f ~/.zshrc.local ]] && source ~/.zshrc.local
-'';
+- `programs.zsh.initContent` sources `~/.zshrc.local` if it exists.
+- `programs.git.includes` pulls in `~/.gitconfig.local`.
 
-# and add includes to programs.git
-programs.git.includes = [ { path = "~/.gitconfig.local"; } ];
-```
-
-Until you do, your commits keep the identity baked into `home.nix` - see the Git identity warning below.
+**Which git identity wins:** Home Manager writes the include *after* the name and email set in `home.nix`, and Git lets the last value win. So on a machine with `~/.gitconfig.local`, the work identity in that file overrides the one in `home.nix`. Without the file, the `home.nix` identity applies - which is why you still need to change it (see the Git identity warning below).
 
 ## Why It Won't Disrupt Anything
 
 - Missing Files Are Safely Ignored:
 
-The guard condition `[[ -f ~/.zshrc.local ]]` checks that the file exists first, so a personal machine without `.zshrc.local` skips it silently without errors.
-Git's `[include]` directive likewise ignores a missing target file automatically.
+The `[[ -f ~/.zshrc.local ]]` guard in `programs.zsh.initContent` checks that the file exists before sourcing it, so a personal machine without `.zshrc.local` skips it silently without errors.
+Git ignores a missing `include.path` target automatically, so `programs.git.includes` is equally harmless when `~/.gitconfig.local` isn't there.
 
 - Your Day-to-Day Workflow Stays Identical:
 

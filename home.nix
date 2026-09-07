@@ -28,6 +28,8 @@ in
     syntaxHighlighting.enable = true;  # commands turn green when valid
     initContent = ''
       bindkey '^f' autosuggest-accept
+      # Machine-specific overrides (work laptops); untracked, absent is fine.
+      [[ -f ~/.zshrc.local ]] && source ~/.zshrc.local
     '';
     shellAliases = {
       ".." = "cd ..";
@@ -59,6 +61,9 @@ in
       name = "modzs";
       email = "windom.jh@gmail.com";
     };
+    # Home Manager appends this include after the settings above, so a
+    # work machine's untracked ~/.gitconfig.local overrides the identity.
+    includes = [ { path = "~/.gitconfig.local"; } ];
   };
 
   # Edit-in-place: the real file stays in my repo, ~/.config just points at it.

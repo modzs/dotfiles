@@ -334,7 +334,7 @@ EOF
 
 **What it does:**
 - Creates a local git config file for work identity
-- Git automatically includes this on top of your global config
+- `programs.git.includes` in `home.nix` pulls it in after the identity set there, so it overrides your name and email
 - Not tracked by git (stays private to your machine)
 
 Similarly, create `~/.zshrc.local` for work-specific environment variables:
@@ -348,12 +348,12 @@ EOF
 
 **What it does:**
 - Adds work-specific environment variables and aliases
-- Loaded automatically by your shell
+- Sourced automatically by the `~/.zshrc` Home Manager generates from `programs.zsh.initContent`
 - Not tracked by git
 
 Both `.local` files are in `.gitignore` and won't be committed to the repo.
 
-**These files are inert until you wire them up.** Home Manager generates the live `~/.zshrc` and `~/.config/git/config` from `home.nix`; the `.zshrc` and `.gitconfig` at the repo root are reference templates that nothing installs. See "Employer provided machines ONLY" in README.md for the two `home.nix` hooks that make the `.local` files take effect.
+No further wiring is needed: `home.nix` already sources `~/.zshrc.local` from `programs.zsh.initContent` and pulls in `~/.gitconfig.local` through `programs.git.includes`. Home Manager writes that include after the identity set in `home.nix`, so `~/.gitconfig.local` overrides your name and email on a work machine, and is simply ignored when it isn't there.
 
 ---
 
