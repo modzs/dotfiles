@@ -61,36 +61,19 @@ in
   ];
 
   # The npm CLIs above are not in nixpkgs, so Home Manager installs them into the
-  # writable prefix instead. Version-guarded, so a rebuild with nothing to change
-  # touches the network zero times, and a failed install warns instead of aborting
-  # the switch.
+  # writable prefix instead. The logic lives in lib/npm-globals.sh - a real script,
+  # so tests/npm-globals.test.sh can execute it - and the pinned versions are passed
+  # in, so npmGlobals above stays the single source of truth. Version-guarded, so a
+  # rebuild with nothing to change touches the network zero times, and a failed
+  # install warns instead of aborting the switch.
   home.activation.agentNpmCLIs = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
-    nodeBin="${pkgs.nodejs_26}/bin"
+    # Home Manager sets DRY_RUN as a plain shell variable, so a child process only
+    # inherits it when we export it here. Exporting only when it is set keeps the
+    # script's `set, even if empty` test meaning exactly what it did inline.
+    if [ -n "''${DRY_RUN+x}" ]; then export DRY_RUN; fi
 
-    for spec in ${npmSpecs}; do
-      name="''${spec%@*}"
-      want="''${spec##*@}"
-      manifest="${npmPrefix}/lib/node_modules/$name/package.json"
-
-      have=""
-      if [ -r "$manifest" ]; then
-        have="$("$nodeBin/node" -p "require('$manifest').version" 2>/dev/null || true)"
-      fi
-      if [ "$have" = "$want" ]; then
-        continue
-      fi
-
-      if [ -n "''${DRY_RUN+x}" ]; then
-        echo "would install $spec into ${npmPrefix}"
-        continue
-      fi
-
-      echo "installing $spec into ${npmPrefix}"
-      if ! PATH="$nodeBin:$PATH" NPM_CONFIG_PREFIX="${npmPrefix}" \
-           "$nodeBin/npm" install --global --no-fund --no-audit "$spec"; then
-        echo "warning: could not install $spec (offline?). Keeping ''${have:-nothing}." >&2
-      fi
-    done
+    ${pkgs.bash}/bin/bash ${./lib/npm-globals.sh} \
+      "${pkgs.nodejs_26}/bin" "${npmPrefix}" ${npmSpecs}
   '';
 
   programs.zsh = {
