@@ -396,17 +396,20 @@ test_identity_written_to_gitconfig_local() {
 }
 
 test_identity_empty_keeps_existing() {
-  local sb status
+  local sb status reports
   sb=$(make_sandbox)
   git config --file "$sb/home/.gitconfig.local" user.name "Grace Hopper"
   git config --file "$sb/home/.gitconfig.local" user.email "grace@example.com"
   status=$(run_bootstrap "$sb" repo "$(identity_input '' '' '')")
 
   [ "$status" = 0 ] || fail "bootstrap failed on an empty git identity: $(sandbox_out "$sb")"
-  assert_contains "$(sandbox_out "$sb")" "holds user.name \"Grace Hopper\" and user.email \"grace@example.com\"" \
-    "bootstrap did not report the existing identity before prompting"
-  assert_contains "$(sandbox_out "$sb")" "holds user.name \"Grace Hopper\" and user.email \"grace@example.com\"" \
-    "bootstrap did not keep the existing identity on empty input"
+  # Twice by design: once from the file as found, once re-read after the writes.
+  # A single occurrence means the closing report is gone, and the run would be
+  # describing the keystrokes rather than the file it left behind.
+  reports=$(grep -cF 'holds user.name "Grace Hopper" and user.email "grace@example.com"' \
+    "$sb/out" || true)
+  [ "$reports" = 2 ] \
+    || fail "expected the identity reported before the prompts and again after the writes, saw $reports"
   [ "$(gitconfig_local_value "$sb" user.name)" = "Grace Hopper" ] \
     || fail "empty input changed the existing git name"
   [ "$(gitconfig_local_value "$sb" user.email)" = "grace@example.com" ] \

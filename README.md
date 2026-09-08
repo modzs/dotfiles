@@ -35,12 +35,12 @@ Running the switch builds:
 
 - Clone repo as normal
 - Create untracked .local files directly into home directory
-- Create `~/.gitconfig.local`
+- Set the work identity in `~/.gitconfig.local`
 ```sh
-[user]
-    name = Your Work Name
-    email = your_work_email@company.com
+git config --file ~/.gitconfig.local user.name "Your Work Name"
+git config --file ~/.gitconfig.local user.email "your_work_email@company.com"
 ```
+These two commands create the file if it isn't there and change only those two keys, so anything else you keep in it - and whatever `bootstrap.sh` already wrote there - survives. Don't replace the whole file with a `cat >` heredoc.
 - Create `~/.zshrc.local`
 ```sh
 # Work-specific environment variables and aliases
