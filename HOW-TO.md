@@ -65,11 +65,11 @@ Also check `configuration-darwin.nix` for:
 1. **Installs Determinate Nix** (if not already installed)
    - Downloads and runs the Nix installer
    - Creates `/nix` directory for Nix packages
-   
+
 2. **Symlinks the repo to `~/.dotfiles`**
    - Creates a shortcut from your home directory to this repo
    - Allows your config files to be edited in place without rebuilding
-   
+
 3. **Checks and fixes username**
    - Compares the `user = "john"` in `flake.nix` with your actual macOS username
    - Offers to update it automatically if they don't match
