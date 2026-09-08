@@ -36,55 +36,40 @@ Running the switch builds:
 
 ## Fresh-machine setup
 
-On a brand new machine, from a bare clone of this repo:
+On a brand new machine you clone this repo and run `./bootstrap.sh`. Review "Make it yours"
+below before you run it: `bootstrap.sh` applies the config to your machine, and the Homebrew
+cleanup warning there means the first switch removes any Homebrew package this repo does not list.
 
-```sh
-git clone https://github.com/modzs/dotfiles.git
-cd dotfiles
-```
-
-Before you run it: review "Make it yours" below and adjust settings as needed.
-`bootstrap.sh` applies the config to your machine, so do this first:
-
-```sh
-./bootstrap.sh
-```
-
-`bootstrap.sh` does six things, in order:
-
-1. Installs Determinate Nix, if it isn't already installed.
-2. Symlinks this repo to `~/.dotfiles`.
-3. Checks the `user` configured in `flake.nix` against your actual username, and offers to fix it if they differ.
-4. Prompts for the machine name and writes it to the `hostName` line in `flake.nix`. Press Enter to keep the configured name.
-5. Prompts for a git name and email and writes them to `~/.gitconfig.local`, outside this repo. The only default offered is what that file already says, so press Enter to keep it - on a machine without it, the prompt starts empty.
-6. Runs the first build and switch with `darwin-rebuild switch --flake ~/.dotfiles#mac`.
+`bootstrap.sh` is the one-time setup. It installs Determinate Nix, symlinks this repo to
+`~/.dotfiles`, checks the `user` line in `flake.nix` against your actual username, prompts for
+the machine name to write to `hostName` and for a git name and email - which go to
+`~/.gitconfig.local`, outside this repo - and then runs the first `darwin-rebuild switch`.
+[Step 1: Clone the Repository](HOW-TO.md#step-1-clone-the-repository) through
+[Step 3: Run Bootstrap Script](HOW-TO.md#step-3-run-bootstrap-script) have the commands and what
+each step does.
 
 Before any of that it checks `~/.dotfiles`. If something is already there that
 isn't a symlink and isn't this repo, it stops immediately rather than after
 installing Nix and taking your password. Cloning the repo to `~/.dotfiles`
-itself is fine - step 2 then has nothing to do.
+itself is fine - the symlink step then has nothing to do.
 
 After that, the config is applied and you're on the normal workflow below.
 
 ### Validate without applying
 
-Once Nix is installed, you can check that the config builds without applying it (handy after edits):
-
-```sh
-nix flake check --no-build
-nix build .#darwinConfigurations.mac.system --dry-run
-```
+Once Nix is installed, you can check that the config builds without applying it. It is worth doing
+after edits, because a switch that fails halfway is more work to reason about than a build that
+never ran. [Checking What Will Change](HOW-TO.md#checking-what-will-change) and
+[Want to Check What Will Be Installed First?](HOW-TO.md#want-to-check-what-will-be-installed-first)
+have the two commands.
 
 ## Daily use
 
-Edit the config files in place, then apply:
-
-```sh
-./rebuild.sh
-```
-
+Edit the config files in place, then run `./rebuild.sh` to apply.
 That's it.
-No separate build-and-copy step.
+No separate build-and-copy step, and nothing to rebuild at all for the files under `home/`, which
+are symlinked - see "How the symlinks work" below.
+[Applying Changes](HOW-TO.md#applying-changes) has the command and what it does.
 
 To bring a machine up to date with changes that landed elsewhere, pull first.
 [Updating to the Latest Config](HOW-TO.md#updating-to-the-latest-config) has the commands, what to
@@ -202,7 +187,9 @@ weakened; the toolchain simply stops living in the tree it manages.
 
 **The five npm CLIs are pinned.** They aren't in nixpkgs, so a Home Manager activation step in
 `home.nix` installs each one at an exact version into `~/.npm-global`. The versions are the
-`npmGlobals` attribute set in `home.nix`; to move one, edit the version and run `./rebuild.sh`.
+`npmGlobals` attribute set in `home.nix`; to move one, edit the version and rebuild -
+[Bumping or Adding a Pinned npm Agent CLI](HOW-TO.md#bumping-or-adding-a-pinned-npm-agent-cli)
+has the steps.
 Pinning is deliberate. Unpinned, a routine rebuild could silently change a tool's behaviour
 underneath you; pinned, the version only moves when you change this file and commit it.
 
