@@ -102,9 +102,14 @@ SHIM
 echo "nix \$*" >>"$sb/calls.log"
 exit 0
 SHIM
+  # Step 1 only asks whether nix exists; step 6 needs its absolute path. A
+  # <sb>/drop-nix file removes the nix shim from PATH once step 4 is reached,
+  # which is the machine state the step 6 guard is about: nix was installed,
+  # but this shell's PATH never learned about it.
   cat >"$sb/bin/scutil" <<SHIM
 #!/bin/sh
 echo "scutil \$*" >>"$sb/calls.log"
+[ -f "$sb/drop-nix" ] && rm -f "$sb/bin/nix"
 [ "\$1 \$2" = "--get ComputerName" ] && echo SandboxMac
 exit 0
 SHIM
@@ -120,10 +125,13 @@ SHIM
 
 # Run one of the repo's scripts inside a sandbox.
 #   $1 sandbox root, $2 script path relative to the repo copy,
-#   $3 repo path relative to the sandbox, $4 stdin to feed
+#   $3 repo path relative to the sandbox, $4 stdin to feed,
+#   $5 (optional) the PATH to run with, defaulting to the shims plus our own
 # Writes combined output to <sb>/out and echoes the exit status.
 run_script() {
   local sb=$1 script=$2 repo_rel=$3 input=$4 status=0
+  local path=${5:-}
+  [ -n "$path" ] || path="$sb/bin:$PATH"
   # Belt and braces: never run with anything but the sandbox as $HOME.
   case "$sb/home" in
     "$TMP_ROOT"/*) : ;;
@@ -133,7 +141,7 @@ run_script() {
   # so pin both into the sandbox: an identity on the runner's own machine must
   # never decide what these cases observe.
   printf '%s' "$input" \
-    | env HOME="$sb/home" PATH="$sb/bin:$PATH" \
+    | env HOME="$sb/home" PATH="$path" \
         GIT_CONFIG_NOSYSTEM=1 XDG_CONFIG_HOME="$sb/home/.config" \
         /bin/bash "$sb/$repo_rel/$script" \
       >"$sb/out" 2>&1 || status=$?
@@ -141,7 +149,7 @@ run_script() {
 }
 
 run_bootstrap() {
-  run_script "$1" bootstrap.sh "${2:-repo}" "${3:-$'\n'}"
+  run_script "$1" bootstrap.sh "${2:-repo}" "${3:-$'\n'}" "${4:-}"
 }
 
 sandbox_out() { cat "$1/out"; }
@@ -879,6 +887,47 @@ test_rebuild_preserves_the_switch_exit_status() {
   pass "report: a failing switch keeps its exit status and is still reported on"
 }
 
+# --- step 6: nix missing from PATH -------------------------------------------
+
+# Under `set -euo pipefail` the failing `command -v nix` used to abort the run
+# right here, printing nothing at all: the user saw bootstrap.sh simply quit.
+test_switch_reports_a_missing_nix() {
+  local sb status
+  sb=$(make_sandbox)
+  : >"$sb/drop-nix"
+  # A machine that runs this suite usually has a real nix on PATH, and the
+  # sandbox shim is only the first entry. Pin the PATH down to the shims and
+  # the system directories so "not on PATH" actually means that.
+  status=$(run_bootstrap "$sb" repo $'\n' "$sb/bin:/usr/bin:/bin:/usr/sbin:/sbin")
+
+  [ "$status" != 0 ] || fail "bootstrap succeeded with no nix on PATH: $(sandbox_out "$sb")"
+  assert_contains "$(sandbox_out "$sb")" "nix is not on this shell's PATH" \
+    "bootstrap did not say why it stopped when nix was missing"
+  assert_contains "$(sandbox_out "$sb")" "Open a new terminal and re-run ./bootstrap.sh" \
+    "bootstrap did not name the remedy for a missing nix"
+  case "$(sandbox_calls "$sb")" in
+    *"switch --flake"*) fail "bootstrap reached the switch without nix on PATH" ;;
+  esac
+
+  pass "switch: a missing nix is reported with its remedy instead of a silent exit"
+}
+
+test_switch_guard_stays_quiet_when_nix_is_present() {
+  local sb status
+  sb=$(make_sandbox)
+  status=$(run_bootstrap "$sb")
+
+  [ "$status" = 0 ] || fail "bootstrap failed with nix on PATH: $(sandbox_out "$sb")"
+  case "$(sandbox_out "$sb")" in
+    *"nix is not on this shell's PATH"*)
+      fail "bootstrap reported a missing nix while nix was on PATH" ;;
+  esac
+  assert_contains "$(sandbox_calls "$sb")" "switch --flake $sb/home/.dotfiles#mac" \
+    "bootstrap did not reach the switch with nix on PATH"
+
+  pass "switch: the missing-nix guard stays quiet when nix is on PATH"
+}
+
 test_link_created_when_absent
 test_link_rerun_is_idempotent
 test_link_replaces_stale_symlink
@@ -912,5 +961,7 @@ test_report_empty_value_in_the_managed_file_is_not_called_foreign
 test_report_config_git_cannot_read_repeats_gits_complaint
 test_rebuild_reports_one_key_at_a_time
 test_rebuild_preserves_the_switch_exit_status
+test_switch_reports_a_missing_nix
+test_switch_guard_stays_quiet_when_nix_is_present
 
 test_summary
