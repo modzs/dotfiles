@@ -199,9 +199,10 @@ Most of the time there is nothing to do. A modified `flake.nix` only blocks the 
 incoming commit touches `flake.nix` as well, and most commits do not - leave it modified and pull
 normally.
 
-When one does touch it, treat it as the ordinary merge conflict it is and resolve it however you
-normally would, keeping your own `user` and `hostName` lines. They are machine-local values that
-upstream never needs.
+When one does touch it, git refuses before merging anything. Nothing is lost and `flake.nix` is
+exactly as you left it - the pull simply does not happen. The tool-written files above are the
+ones with a safe automatic remedy. `flake.nix` is not: it carries your own username and machine
+name, so what happens to those two lines is a deliberate decision rather than a canned command.
 
 `git checkout --` throws the local change away for good, which is exactly why you read `git diff`
 before running it. See [`git status` Shows Changes You Never Made](#git-status-shows-changes-you-never-made)
