@@ -153,8 +153,10 @@ git pull
 ./rebuild.sh
 ```
 
-`~/.dotfiles` is a symlink to wherever you cloned the repo, so this works the same from either
-path: `cd ~/.dotfiles` and `cd ~/code/dotfiles` land you in the same working copy.
+`~/.dotfiles` is where the repo lives - either the clone itself, if you cloned it straight to
+that path, or a symlink to wherever you did clone it. The commands work the same either way:
+`cd ~/.dotfiles` always lands you in the working copy, as does `cd ~/code/dotfiles` or whatever
+path you cloned to.
 
 **If `git pull` refuses because the working copy is dirty**
 
@@ -166,25 +168,42 @@ git status
 git diff
 ```
 
-Often it is not an edit you made. `home/.claude/settings.json` is tracked *and* linked into
-`~/.claude`, and two tools write to it on your machine:
+The point of looking is to tell two cases apart, because they have opposite remedies.
 
-- herdr adds a `SessionStart` hook with your home directory spelled out in full, whenever its
-  Claude integration is installed or updated.
+**A tool on your machine wrote it - safe to throw away.** `home/.claude/settings.json` and
+`home/.config/herdr/config.toml` are tracked *and* linked into your home directory, so tools write
+to them where you actually use them:
+
+- herdr adds a `SessionStart` hook to `settings.json` with your home directory spelled out in
+  full, whenever its Claude integration is installed or updated.
 - Claude Code rewrites `"model": "opus"` to `"opus[1m]"` once, on a 1M-context account.
+- herdr appends settings of its own to `config.toml` when you change one from inside herdr. The
+  tracked file already declares `onboarding = false` so that particular write never happens.
 
-Both are expected locally and wrong for everyone else, so neither is ever committed. Restore the
-file and pull again:
+Each is expected locally and wrong for everyone else, so none of them is ever committed. Restore
+the file and pull again:
 
 ```bash
 git checkout -- home/.claude/settings.json
 git pull
 ```
 
-`git checkout --` throws the local change away, which is exactly why you read `git diff` first.
-If the diff turns out to be an edit you wanted, commit it instead of discarding it. See
-[`git status` Shows Changes You Never Made](#git-status-shows-changes-you-never-made) for the
-longer version.
+**Your own setup wrote it - never throw it away.** `flake.nix` above all: `bootstrap.sh` rewrites
+its `user = ` and `hostName = ` lines in place to your username and your machine name, and nothing
+ever commits that edit for you. On any machine but the original author's, a modified `flake.nix`
+is almost certainly that. `git checkout -- flake.nix` would undo your setup, and the `./rebuild.sh`
+in the recipe above would then build for the wrong user against a home directory that is not
+yours. Commit it instead, then pull:
+
+```bash
+git add flake.nix
+git commit -m "Set user and hostName for this machine"
+git pull
+```
+
+`git checkout --` throws the local change away for good, which is exactly why you read `git diff`
+before running it. See [`git status` Shows Changes You Never Made](#git-status-shows-changes-you-never-made)
+for the longer version.
 
 **Which pulled changes need `./rebuild.sh`**
 
