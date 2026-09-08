@@ -7,6 +7,9 @@ This guide walks you through setting up your development environment using this 
 1. [macOS Setup](#macos-setup)
 2. [Daily Workflow](#daily-workflow)
 3. [Customizing Your Setup](#customizing-your-setup)
+4. [Troubleshooting](#troubleshooting)
+5. [Summary](#summary)
+6. [Quick Reference: What's Where](#quick-reference-whats-where)
 
 ---
 
@@ -138,6 +141,88 @@ If the origin is some other file, that file is what you actually commit as. `~/.
 ---
 
 ## Daily Workflow
+
+### Updating to the Latest Config
+
+When changes land in the repo - yours from another machine, or anyone else's - this is how you
+bring a machine up to date:
+
+```bash
+cd ~/.dotfiles
+git pull
+./rebuild.sh
+```
+
+`~/.dotfiles` is a symlink to wherever you cloned the repo, so this works the same from either
+path: `cd ~/.dotfiles` and `cd ~/code/dotfiles` land you in the same working copy.
+
+**If `git pull` refuses because the working copy is dirty**
+
+git stops with `Your local changes to the following files would be overwritten by merge` when an
+incoming commit touches a file you have uncommitted changes in. Look before you discard anything:
+
+```bash
+git status
+git diff
+```
+
+Often it is not an edit you made. `home/.claude/settings.json` is tracked *and* linked into
+`~/.claude`, and two tools write to it on your machine:
+
+- herdr adds a `SessionStart` hook with your home directory spelled out in full, whenever its
+  Claude integration is installed or updated.
+- Claude Code rewrites `"model": "opus"` to `"opus[1m]"` once, on a 1M-context account.
+
+Both are expected locally and wrong for everyone else, so neither is ever committed. Restore the
+file and pull again:
+
+```bash
+git checkout -- home/.claude/settings.json
+git pull
+```
+
+`git checkout --` throws the local change away, which is exactly why you read `git diff` first.
+If the diff turns out to be an edit you wanted, commit it instead of discarding it. See
+[`git status` Shows Changes You Never Made](#git-status-shows-changes-you-never-made) for the
+longer version.
+
+**Which pulled changes need `./rebuild.sh`**
+
+Files under `home/` are symlinked into place, so a pull updates your live config the moment it
+lands - no rebuild involved. Everything else - `home.nix`, `configuration-darwin.nix`,
+`flake.nix`, `flake.lock`, package lists, macOS defaults, the pinned npm CLI versions - only
+takes effect after the switch. See "How the symlinks work" in README.md for why. A rebuild that
+had nothing to do is cheap and harmless, so when you are unsure, just run it.
+
+**Check that the update applied**
+
+```bash
+git status -sb
+git log --oneline -1
+```
+
+`## main...origin/main` with no `behind` count means the working copy now has everything from the
+remote, and the log line names the commit you are on.
+
+For the switch itself, look at the system profile:
+
+```bash
+ls -l /nix/var/nix/profiles/system
+```
+
+The timestamp on that symlink is when your last switch ran, and the `system-N-link` it points at
+is the generation now active.
+
+If the pull moved a pinned npm CLI, the installed copy should match the pin:
+
+```bash
+grep -A 6 "npmGlobals" ~/.dotfiles/home.nix
+gh-axi --version
+```
+
+**The first pull after a long gap can take a while.** If `flake.lock` moved, the switch may
+download or build a lot of packages before it finishes - minutes, not seconds. That is expected,
+not a sign anything is wrong.
 
 ### Making Changes
 
@@ -325,18 +410,17 @@ Then apply:
 The agent CLIs (`gh-axi`, `chrome-devtools-axi`, `lavish-axi`, `tasks-axi`, `quota-axi`) are not
 in Nixpkgs, so `home.nix` pins them by version and installs them into `~/.npm-global`.
 
-Edit `home.nix` and find the `npmGlobals` attribute set near the top:
+Edit `home.nix` and find the `npmGlobals` attribute set near the top. It maps a package name to
+an exact version, one line each:
 
 ```nix
 npmGlobals = {
-  "gh-axi" = "0.1.35";
-  "chrome-devtools-axi" = "0.1.34";
-  "lavish-axi" = "0.1.67";
-  "tasks-axi" = "0.2.5";
-  "quota-axi" = "0.1.40";
-  "some-other-cli" = "1.2.3";   # <- add a new CLI here
+  "gh-axi" = "<version>";        # <- edit a version in place to bump a pin
+  "some-other-cli" = "1.2.3";    # <- add a line to add a new CLI
 };
 ```
+
+The versions in the file are the live pins - read them there rather than from this guide.
 
 Check what versions are available first:
 

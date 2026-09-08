@@ -55,6 +55,10 @@ Deliberate decisions in this repo - do NOT silently revert them:
   out-of-store symlink, so an undeclared key lands as an unexplained diff. Declaring it leaves herdr
   nothing to write. `tests/repo-hygiene.test.sh` guards it with a real TOML parser, which is why the
   CI test job pins python3.
+- README.md and HOW-TO.md split by role, and drift when that is ignored: README owns architecture,
+  rationale, and the "why" behind a decision; HOW-TO owns step-by-step commands, expected output,
+  and troubleshooting. A procedure belongs in exactly one of them - the other cross-references it,
+  never re-states it. Duplicating a recipe is how a fix lands in one copy and misses the other.
 - Never commit `.no-mistakes/` validation evidence to this public repo. `.no-mistakes/` is gitignored; if a validation pipeline stages evidence into a branch, drop it before merging.
 
 ## Maintaining this file
