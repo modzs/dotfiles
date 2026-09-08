@@ -10,7 +10,7 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 
 # Everything below resolves through ~/.dotfiles, so settle that path before
 # anything is installed and before sudo is asked for. Refusing here costs the
-# user nothing; refusing at step 5 would cost them a Nix install and a password.
+# user nothing; refusing at step 6 would cost them a Nix install and a password.
 echo "==> Preflight: ~/.dotfiles"
 # A failing command substitution in an assignment exits under `set -e`, so an
 # unusable ~/.dotfiles stops the script right here.
@@ -78,10 +78,138 @@ if [ "$NEW_HOSTNAME" != "$FLAKE_HOSTNAME" ]; then
 else
   echo "    Keeping \"$FLAKE_HOSTNAME\"."
 fi
-# nix-darwin applies networking.hostName during the switch in step 5.
+# nix-darwin applies networking.hostName during the switch in step 6.
 echo "    nix-darwin will apply this during the switch."
 
-echo "==> Step 5: first build and switch"
+echo "==> Step 5: personalize the git identity"
+# The identity lives in the untracked ~/.gitconfig.local, never in this repo:
+# home.nix sets no name or email, it only pulls that file in through
+# programs.git.includes. Writing the two keys with `git config --file` leaves
+# anything else already in the file - work-machine overrides, say - untouched.
+GITCONFIG_LOCAL="$HOME/.gitconfig.local"
+
+# git's complaints run to several lines. Indent every one of them, so a quoted
+# error stays visibly part of the step rather than breaking out of its margin.
+echo_git_output() {
+  printf '%s\n' "$1" | sed 's/^/      /'
+}
+
+# One wording for the file's contents, printed before the prompts and again
+# after the writes, so the two can never disagree. Each key is reported on its
+# own: half an identity rendered as "name <email>" reads as a whole one.
+print_gitconfig_local_state() {
+  local name=$1 email=$2
+  if [ -n "$name" ] && [ -n "$email" ]; then
+    echo "    ~/.gitconfig.local holds user.name \"$name\" and user.email \"$email\"."
+  elif [ -n "$name" ]; then
+    echo "    ~/.gitconfig.local holds user.name \"$name\" and no user.email."
+  elif [ -n "$email" ]; then
+    echo "    ~/.gitconfig.local holds user.email \"$email\" and no user.name."
+  else
+    echo "    ~/.gitconfig.local holds no user.name and no user.email."
+  fi
+}
+
+# Another file on the machine can set the same key, one key at a time, so a
+# stale [user] section holding only an email yields a mixed identity that is
+# harder to spot than a plainly wrong one. Repeat git's own answer - the value
+# and the file it came from - and stop there: which file ends up deciding is
+# git's business, and this script neither models that nor touches the file.
+# Only keys ~/.gitconfig.local actually holds are compared; with nothing of our
+# own to disagree with, there is nothing to report. $HOME rather than the
+# current directory, so a repository's own config is not read as a machine-wide
+# one.
+report_competing_identity_key() {
+  local key=$1 own=$2 resolved origin value
+  [ -n "$own" ] || return 0
+  resolved="$(git -C "$HOME" config --show-origin --get "$key" 2>/dev/null || true)"
+  case "$resolved" in
+    file:*) : ;;
+    *) return 0 ;;
+  esac
+  value="${resolved#*$'\t'}"
+  origin="${resolved%%$'\t'*}"
+  origin="${origin#file:}"
+  [ "$origin" != "$GITCONFIG_LOCAL" ] || return 0
+  [ "$value" != "$own" ] || return 0
+  echo "    Heads up: git currently resolves $key to \"$value\" from $origin,"
+  echo "    while ~/.gitconfig.local holds \"$own\". This script leaves $origin alone."
+}
+
+# A hand-edited ~/.gitconfig.local can be unparsable, and then every read of it
+# comes back empty - indistinguishable from a file that simply sets nothing.
+# Ask git once, keep its complaint, and report that instead of a false "holds
+# nothing".
+GITCONFIG_LOCAL_ERROR=""
+if [ -e "$GITCONFIG_LOCAL" ]; then
+  GITCONFIG_LOCAL_ERROR="$(git config --file "$GITCONFIG_LOCAL" --list 2>&1 >/dev/null || true)"
+fi
+# Prefer what that file already says, and offer nothing otherwise: a default
+# read from this machine's wider git config would propose whoever configured it
+# before - including the identity this repo deliberately stopped shipping.
+GIT_NAME="$(git config --file "$GITCONFIG_LOCAL" --get user.name 2>/dev/null || true)"
+GIT_EMAIL="$(git config --file "$GITCONFIG_LOCAL" --get user.email 2>/dev/null || true)"
+echo "    This step writes a git name and email to ~/.gitconfig.local, which"
+echo "    lives outside this repo and is never committed."
+if [ -n "$GITCONFIG_LOCAL_ERROR" ]; then
+  echo "    git cannot parse ~/.gitconfig.local, so nothing can be read from it:"
+  echo_git_output "$GITCONFIG_LOCAL_ERROR"
+  echo "    Fix that file by hand; step 6 below runs either way."
+else
+  print_gitconfig_local_state "$GIT_NAME" "$GIT_EMAIL"
+fi
+read -r -p "    Git name [$GIT_NAME]: " NEW_GIT_NAME || true
+NEW_GIT_NAME="${NEW_GIT_NAME:-$GIT_NAME}"
+# Whatever is typed is taken as given. Nix is installed and flake.nix is already
+# rewritten by now, so no answer may abort the run, and git validates neither
+# key itself. An empty answer is a deliberate skip: home.nix's include handles
+# an absent ~/.gitconfig.local.
+read -r -p "    Git email [$GIT_EMAIL]: " NEW_GIT_EMAIL || true
+NEW_GIT_EMAIL="${NEW_GIT_EMAIL:-$GIT_EMAIL}"
+# Each key is written and reported on its own: a name typed without an email is
+# still the user's answer, and one key git refuses says nothing about the other.
+# A write git refuses - an unparsable file, or a duplicated [user] section it
+# cannot collapse - carries git's own reason and is survived, never allowed to
+# kill the run one step short of the switch.
+WROTE=""
+UNWRITABLE=""
+write_identity_key() {
+  local key=$1 value=$2 err status=0
+  [ -n "$value" ] || return 0
+  err="$(git config --file "$GITCONFIG_LOCAL" "$key" "$value" 2>&1 >/dev/null)" || status=$?
+  if [ "$status" = 0 ]; then
+    WROTE=yes
+    echo "    Wrote $key to ~/.gitconfig.local."
+    return 0
+  fi
+  UNWRITABLE=yes
+  echo "    git refused to write $key to ~/.gitconfig.local:"
+  [ -z "$err" ] || echo_git_output "$err"
+  echo "    Repair that file by hand, then set that key with:"
+  echo "      git config --file ~/.gitconfig.local $key \"$value\""
+}
+write_identity_key user.name "$NEW_GIT_NAME"
+write_identity_key user.email "$NEW_GIT_EMAIL"
+# Report the file, not the keystrokes. A prompt answered with Enter leaves
+# whatever was already there, so only a fresh read says what the file holds now.
+FINAL_GIT_NAME="$(git config --file "$GITCONFIG_LOCAL" --get user.name 2>/dev/null || true)"
+FINAL_GIT_EMAIL="$(git config --file "$GITCONFIG_LOCAL" --get user.email 2>/dev/null || true)"
+if [ -z "$GITCONFIG_LOCAL_ERROR" ] && [ -z "$UNWRITABLE" ]; then
+  if [ -n "$WROTE" ]; then
+    print_gitconfig_local_state "$FINAL_GIT_NAME" "$FINAL_GIT_EMAIL"
+  fi
+  if [ -z "$FINAL_GIT_NAME" ] || [ -z "$FINAL_GIT_EMAIL" ]; then
+    echo "    Set what is missing with:"
+    [ -n "$FINAL_GIT_NAME" ] \
+      || echo "      git config --file ~/.gitconfig.local user.name \"Your Name\""
+    [ -n "$FINAL_GIT_EMAIL" ] \
+      || echo "      git config --file ~/.gitconfig.local user.email \"you@example.com\""
+  fi
+fi
+report_competing_identity_key user.name "$FINAL_GIT_NAME"
+report_competing_identity_key user.email "$FINAL_GIT_EMAIL"
+
+echo "==> Step 6: first build and switch"
 # darwin-rebuild doesn't exist yet on a fresh machine, so run it straight from
 # the flake this once. After this, rebuild.sh works normally.
 # This fetches the darwin-rebuild tool from the nix-darwin-26.05 release branch,

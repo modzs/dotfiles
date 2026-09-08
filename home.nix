@@ -113,12 +113,10 @@ in
   
   programs.git = {
     enable = true;
-    settings.user = {
-      name = "modzs";
-      email = "windom.jh@gmail.com";
-    };
-    # Home Manager appends this include after the settings above, so a
-    # work machine's untracked ~/.gitconfig.local overrides the identity.
+    # No name or email here on purpose: an identity in this tracked file would
+    # follow every clone and fork of this repo. It lives in the untracked
+    # ~/.gitconfig.local instead, which bootstrap.sh prompts for and this
+    # include pulls in - the same file a work machine uses for its overrides.
     includes = [ { path = "~/.gitconfig.local"; } ];
   };
 

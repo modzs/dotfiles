@@ -21,6 +21,10 @@ Deliberate decisions in this repo - do NOT silently revert them:
   `tests/npm-globals.test.sh` can execute it. `home.nix` passes the pins in as arguments;
   `npmGlobals` there stays the single source of truth. Do not re-inline it into the activation
   string, and do not hardcode versions in the script.
+- The git identity is deliberately absent from `home.nix`: this is a public repo people fork, so an
+  identity there would follow every clone. `bootstrap.sh` step 5 prompts for it and writes it to the
+  untracked `~/.gitconfig.local`, which `programs.git.includes` pulls in. Do not add
+  `programs.git.settings.user` back, and never commit `~/.gitconfig.local`.
 - Tests live in `tests/` and run with `./tests/run.sh` (`--strict` fails on any skipped check).
   A check that could not run must report `skip -`, never `ok -`; CI runs the strict form, so a
   new environment-dependent test needs its dependency added to `.github/workflows/ci.yml`.
