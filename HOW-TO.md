@@ -235,12 +235,15 @@ ls -l /nix/var/nix/profiles/system
 The timestamp on that symlink is when your last switch ran, and the `system-N-link` it points at
 is the generation now active.
 
-If the pull moved a pinned npm CLI, the installed copy should match the pin:
+If the pull moved a pinned npm CLI, the installed copies should match the pins:
 
 ```bash
 sed -n '/npmGlobals = {/,/};/p' ~/.dotfiles/home.nix
-gh-axi --version
+npm ls -g --depth=0
 ```
+
+Compare every line, not just the CLI you came for. An install that fails during the switch only
+prints a warning and the switch still succeeds, so any one of them can silently stay behind.
 
 **The first pull after a long gap can take a while.** If `flake.lock` moved, the switch may
 download or build a lot of packages before it finishes - minutes, not seconds. That is expected,
