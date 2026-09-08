@@ -21,9 +21,11 @@
 #   key the new identity also sets, an unparsable ~/.gitconfig.local that must
 #   not abort the run, and a write git refuses for one key but not the other;
 # - the identity report both scripts make after the switch: silence when both
-#   keys resolve from ~/.gitconfig.local, no identity at all, an identity an
-#   overriding file decides, only one of the two keys resolving, and a failing
-#   switch whose exit status must survive the report.
+#   keys resolve from ~/.gitconfig.local, no identity at all, only one of the
+#   two keys resolving, a key some file sets to an empty value, an identity an
+#   overriding file decides - which bootstrap.sh names and rebuild.sh keeps
+#   quiet about - and a failing switch whose exit status must survive the
+#   report.
 set -u
 
 # shellcheck source=tests/lib.sh
@@ -716,32 +718,71 @@ test_rebuild_reports_when_no_identity_resolves() {
 }
 
 # The case the captain hit: ~/.gitconfig.local is set up correctly and another
-# file still decides. Naming the file and the value is the whole remedy; this
-# repo cannot state which file wins, so it prescribes nothing.
-test_rebuild_reports_identity_from_another_file() {
+# file still decides. bootstrap.sh runs once, right after the machine was set
+# up, so it is the moment where naming that file is worth the interruption.
+# Naming the file and the value is the whole of it; this repo cannot state which
+# file wins, so it prescribes nothing.
+test_bootstrap_reports_identity_from_another_file() {
   local sb status before
+  sb=$(make_sandbox)
+  write_home_gitconfig "$sb" "Previous Owner" "previous@example.com"
+  before=$(cat "$sb/home/.gitconfig")
+  status=$(run_bootstrap "$sb" repo "$(identity_input '' 'Ada Lovelace' 'ada@example.com')")
+
+  [ "$status" = 0 ] || fail "bootstrap failed against an overriding ~/.gitconfig: $(sandbox_out "$sb")"
+  assert_contains "$(sandbox_out "$sb")" "git resolves user.name to \"Previous Owner\", from $sb/home/.gitconfig." \
+    "bootstrap did not name the value and file git resolves the name from"
+  assert_contains "$(sandbox_out "$sb")" "git resolves user.email to \"previous@example.com\", from $sb/home/.gitconfig." \
+    "bootstrap did not name the value and file git resolves the email from"
+  assert_not_contains "$(sandbox_out "$sb")" "--unset" \
+    "bootstrap told the user to unset an identity it does not own"
+  # shellcheck disable=SC2088
+  assert_not_contains "$(sandbox_out "$sb")" "git config --file ~/.gitconfig.local user." \
+    "bootstrap prescribed a write for keys that already resolve"
+  [ "$(cat "$sb/home/.gitconfig")" = "$before" ] \
+    || fail "bootstrap modified ~/.gitconfig instead of only reporting it"
+
+  pass "report: bootstrap.sh names the file an overriding identity comes from"
+}
+
+# The same machine, one switch later. An identity deliberately kept in
+# ~/.gitconfig or in a work includeIf is a correct setup, and rebuild.sh runs on
+# every switch - so it says nothing here, where bootstrap.sh already spoke once.
+test_rebuild_silent_when_a_whole_identity_resolves_elsewhere() {
+  local sb status
   sb=$(make_sandbox)
   git config --file "$sb/home/.gitconfig.local" user.name "Ada Lovelace"
   git config --file "$sb/home/.gitconfig.local" user.email "ada@example.com"
   write_home_gitconfig "$sb" "Previous Owner" "previous@example.com"
-  before=$(cat "$sb/home/.gitconfig")
   status=$(run_rebuild "$sb")
 
   [ "$status" = 0 ] || fail "rebuild.sh failed against an overriding ~/.gitconfig: $(sandbox_out "$sb")"
-  assert_contains "$(sandbox_out "$sb")" "git resolves user.name to \"Previous Owner\", from $sb/home/.gitconfig." \
-    "rebuild.sh did not name the value and file git resolves the name from"
-  assert_contains "$(sandbox_out "$sb")" "git resolves user.email to \"previous@example.com\", from $sb/home/.gitconfig." \
-    "rebuild.sh did not name the value and file git resolves the email from"
-  assert_contains "$(sandbox_out "$sb")" "$sb/home/.gitconfig; edit that yourself" \
-    "rebuild.sh did not point at the file it does not write"
-  assert_not_contains "$(sandbox_out "$sb")" "--unset" \
-    "rebuild.sh told the user to unset an identity it does not own"
-  assert_not_contains "$(sandbox_out "$sb")" "git config --file ~/.gitconfig.local user." \
-    "rebuild.sh prescribed a write for keys that already resolve"
-  [ "$(cat "$sb/home/.gitconfig")" = "$before" ] \
-    || fail "rebuild.sh modified ~/.gitconfig instead of only reporting it"
+  assert_not_contains "$(sandbox_out "$sb")" "Heads up" \
+    "rebuild.sh warned on every rebuild about an identity another file decides"
 
-  pass "report: rebuild.sh names the file an overriding identity comes from"
+  pass "report: rebuild.sh stays quiet when a whole identity resolves from another file"
+}
+
+# A key some file sets to an empty value is not a key nothing sets: git names
+# that file, so the report names it too. Calling it unset would prescribe a
+# write into ~/.gitconfig.local, and this repo cannot say that would change what
+# git resolves.
+test_report_key_set_to_an_empty_value_names_its_file() {
+  local sb status
+  sb=$(make_sandbox)
+  printf '[user]\n\tname = Previous Owner\n\temail = \n' >"$sb/home/.gitconfig"
+  status=$(run_rebuild "$sb")
+
+  [ "$status" = 0 ] || fail "rebuild.sh failed with an empty user.email: $(sandbox_out "$sb")"
+  assert_contains "$(sandbox_out "$sb")" "git resolves user.email to \"\", from $sb/home/.gitconfig." \
+    "rebuild.sh did not name the file that sets user.email to an empty value"
+  assert_not_contains "$(sandbox_out "$sb")" "git resolves no user.email" \
+    "rebuild.sh called a key some file sets one that nothing sets"
+  # shellcheck disable=SC2088
+  assert_not_contains "$(sandbox_out "$sb")" "git config --file ~/.gitconfig.local user.email" \
+    "rebuild.sh prescribed a write for a key some file already sets"
+
+  pass "report: a key set to an empty value is reported with the file that sets it"
 }
 
 # Half an identity is the trap: "Previous Owner <>" reads as a whole one. Each
@@ -811,7 +852,9 @@ test_identity_partial_write_failure_is_reported_per_key
 test_identity_offers_no_default_from_global_config
 test_report_silent_when_identity_comes_from_managed_file
 test_rebuild_reports_when_no_identity_resolves
-test_rebuild_reports_identity_from_another_file
+test_bootstrap_reports_identity_from_another_file
+test_rebuild_silent_when_a_whole_identity_resolves_elsewhere
+test_report_key_set_to_an_empty_value_names_its_file
 test_rebuild_reports_one_key_at_a_time
 test_rebuild_preserves_the_switch_exit_status
 

@@ -9,6 +9,19 @@
 # for ~/.gitconfig.local. Keeping the logic here means the two callers cannot
 # drift apart, for the same reason lib/dotfiles-link.sh exists.
 #
+# The two moments deserve different amounts of speech, so the mode is the first
+# argument to `git_identity_report`:
+#   full          bootstrap.sh. Speaks about a whole identity that resolves
+#                 from some file other than ~/.gitconfig.local too. It runs
+#                 once, right after a machine was set up, and that is the one
+#                 moment where knowing which file decides is worth the reader's
+#                 attention.
+#   missing-only  rebuild.sh. Speaks only when git resolves one of the two keys
+#                 to nothing and would therefore guess it. An identity kept
+#                 deliberately in ~/.gitconfig or in a work `includeIf` is a
+#                 correct setup, and rebuild.sh runs on every switch: a warning
+#                 that prints forever is one nobody reads.
+#
 # What this must never do, each rule paid for once already:
 #   - state or imply a rule about how git ranks config files. It reports the
 #     value and the file git itself named, and stops there;
@@ -22,9 +35,11 @@
 # Must stay bash 3.2 compatible - see AGENTS.md.
 
 # Ask git what it resolves $1 to, and from where. Sets, for the caller to read
-# immediately: GIT_IDENTITY_VALUE and GIT_IDENTITY_ORIGIN, both empty when git
-# resolves the key to nothing. A non-file origin - git's own command line, a
-# blob - is reported verbatim, since it is still what git answered.
+# immediately: GIT_IDENTITY_VALUE and GIT_IDENTITY_ORIGIN. GIT_IDENTITY_ORIGIN
+# is empty exactly when nothing on this machine sets the key; a key some file
+# sets to an empty string has an origin and an empty value, and those are two
+# different states. A non-file origin - git's own command line, a blob - is
+# reported verbatim, since it is still what git answered.
 #
 # Asked from $HOME rather than the current directory, so the config of whatever
 # repository the script happens to sit in is not read as a machine-wide one.
@@ -43,18 +58,17 @@ git_identity_lookup() {
   esac
 }
 
-# Report what git resolves, or say nothing at all.
+# Report what git resolves, or say nothing at all. Silence on a machine that
+# needs no interruption is the point; see the mode table at the top of the file
+# for what each caller considers worth saying.
 #
-# Silence is the point on a correctly configured machine: rebuild.sh runs this
-# on every switch, and a warning that prints every time is one nobody reads. So
-# it speaks only when something is worth an interruption - no identity at all,
-# or an identity coming from a file these scripts do not write.
-#
-# $1 is an optional indent, so bootstrap.sh's step margin is preserved.
+# $1 is the mode, `full` or `missing-only`. $2 is an optional indent, so
+# bootstrap.sh's step margin is preserved.
 git_identity_report() {
-  local indent=${1:-}
+  local mode=$1 indent=${2:-}
   local managed="$HOME/.gitconfig.local"
   local name_value name_origin email_value email_origin
+  local unusable="" foreign=""
 
   git_identity_lookup user.name
   name_value=$GIT_IDENTITY_VALUE
@@ -63,12 +77,18 @@ git_identity_report() {
   email_value=$GIT_IDENTITY_VALUE
   email_origin=$GIT_IDENTITY_ORIGIN
 
-  if [ -n "$name_value" ] && [ -n "$email_value" ] \
-    && [ "$name_origin" = "$managed" ] && [ "$email_origin" = "$managed" ]; then
-    return 0
+  # An empty value is as unusable to git as an unset key: it has nothing to
+  # stamp the next commit with either way.
+  [ -n "$name_value" ] && [ -n "$email_value" ] || unusable=yes
+  [ "$name_origin" = "$managed" ] && [ "$email_origin" = "$managed" ] || foreign=yes
+
+  if [ "$mode" = full ]; then
+    [ -n "$unusable" ] || [ -n "$foreign" ] || return 0
+  else
+    [ -n "$unusable" ] || return 0
   fi
 
-  if [ -z "$name_value" ] && [ -z "$email_value" ]; then
+  if [ -z "$name_origin" ] && [ -z "$email_origin" ]; then
     git_identity_say "$indent" "Heads up: git resolves no user.name and no user.email here, so it"
     git_identity_say "$indent" "will invent an identity for whatever you commit next."
   else
@@ -82,52 +102,25 @@ git_identity_report() {
   # Proposed only for a key nothing on this machine sets, so the advice cannot
   # depend on which file would win, and cannot end up removing the only
   # identity the machine has.
-  if [ -z "$name_value" ] || [ -z "$email_value" ]; then
+  if [ -z "$name_origin" ] || [ -z "$email_origin" ]; then
     git_identity_say "$indent" "Set what git resolves to nothing with:"
-    [ -n "$name_value" ] \
+    [ -n "$name_origin" ] \
       || git_identity_say "$indent" "  git config --file ~/.gitconfig.local user.name \"Your Name\""
-    [ -n "$email_value" ] \
+    [ -n "$email_origin" ] \
       || git_identity_say "$indent" "  git config --file ~/.gitconfig.local user.email \"you@example.com\""
   fi
-
-  git_identity_report_foreign_origin "$indent" "$managed" \
-    "$name_value" "$name_origin" "$email_value" "$email_origin"
 }
 
 # One observation line per key: the value git resolved and the origin git named,
-# or the plain fact that it resolved nothing. Each key on its own line, never
-# assembled into an identity string.
+# or the plain fact that nothing on the machine sets it. Each key on its own
+# line, never assembled into an identity string.
 git_identity_report_key() {
   local indent=$1 key=$2 value=$3 origin=$4
-  if [ -z "$value" ]; then
+  if [ -z "$origin" ]; then
     git_identity_say "$indent" "  git resolves no $key."
   else
     git_identity_say "$indent" "  git resolves $key to \"$value\", from $origin."
   fi
-}
-
-# Name the files these scripts do not own, once each, and leave them alone. No
-# remedy is offered for them: the correct edit is the reader's call, in their
-# own file, and anything more specific would be a claim about precedence.
-git_identity_report_foreign_origin() {
-  local indent=$1 managed=$2 name_value=$3 name_origin=$4 email_value=$5 email_origin=$6
-  local foreign=""
-
-  if [ -n "$name_value" ] && [ "$name_origin" != "$managed" ]; then
-    foreign=$name_origin
-  fi
-  if [ -n "$email_value" ] && [ "$email_origin" != "$managed" ] \
-    && [ "$email_origin" != "$foreign" ]; then
-    if [ -n "$foreign" ]; then
-      foreign="$foreign and $email_origin"
-    else
-      foreign=$email_origin
-    fi
-  fi
-  [ -n "$foreign" ] || return 0
-
-  git_identity_say "$indent" "These scripts write only ~/.gitconfig.local. They never change"
-  git_identity_say "$indent" "$foreign; edit that yourself if that is not the identity you want."
 }
 
 # printf, not echo: an identity value is arbitrary text, and echo would eat a

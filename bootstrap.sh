@@ -207,6 +207,10 @@ sudo "$NIX_BIN" run github:nix-darwin/nix-darwin/nix-darwin-26.05#darwin-rebuild
 # of ~/.gitconfig.local, so before it git could not have read the file step 5
 # just wrote. Asked any earlier, this reported a conflict that the switch itself
 # then resolved. It stays silent unless something is worth saying.
-git_identity_report "    "
+#
+# `full`: this is the one run that also names the file behind an identity that
+# resolves from somewhere other than ~/.gitconfig.local. rebuild.sh would say
+# that on every switch forever, so it does not.
+git_identity_report full "    "
 
 echo "==> Done. Use ./rebuild.sh for future changes."

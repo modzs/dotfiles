@@ -19,6 +19,9 @@ dotfiles_link_apply "$DIR"
 STATUS=0
 sudo darwin-rebuild switch --flake ~/.dotfiles#mac || STATUS=$?
 
-git_identity_report
+# `missing-only`: this runs on every single switch, so it speaks only about a
+# key git resolves to nothing and would guess. An identity deliberately kept in
+# another file is a correct setup, and bootstrap.sh already said so once.
+git_identity_report missing-only
 
 exit "$STATUS"
