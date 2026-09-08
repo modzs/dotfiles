@@ -66,12 +66,11 @@ Deliberate decisions in this repo - do NOT silently revert them:
   out-of-store symlink, so an undeclared key lands as an unexplained diff. Declaring it leaves herdr
   nothing to write. `tests/repo-hygiene.test.sh` guards it with a real TOML parser, which is why the
   CI test job pins python3.
-- A command recipe belongs to exactly one document: HOW-TO.md owns step-by-step commands and
-  troubleshooting, README.md owns architecture, rationale and orientation. The other document
-  keeps the context and the warnings, and cross-references the owner instead of repeating the
-  steps - a duplicated recipe is how a bug once got fixed in one copy and missed in the other.
-  Naming a command in a sentence is not a recipe, and a quick-reference index inside the owning
-  document, like HOW-TO's Summary, is not a second owner.
+- A procedure must not be stated in two documents: one owns it, and the other keeps the context
+  and the warnings and cross-references the owner instead of repeating the steps - a duplicated
+  recipe is how a bug once got fixed in one copy and missed in the other. Where a procedure could
+  sensibly live in either, HOW-TO.md owns step-by-step commands and troubleshooting and README.md
+  owns architecture, rationale and orientation; naming a command in a sentence is not a recipe.
 - Never commit `.no-mistakes/` validation evidence to this public repo. `.no-mistakes/` is gitignored; if a validation pipeline stages evidence into a branch, drop it before merging.
 
 ## Maintaining this file

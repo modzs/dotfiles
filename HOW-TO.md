@@ -49,6 +49,10 @@ Also check `configuration-darwin.nix` for:
 - **Homebrew casks:** Edit the `casks` array to add/remove GUI apps
 - **System settings:** Customize macOS defaults like dark mode, key repeat speed, etc.
 
+Read the `brews` and `casks` arrays before you go on: any Homebrew package or cask you already have
+installed and leave out of them is uninstalled on the first switch, so add anything you want to
+keep. [Make it yours](README.md#make-it-yours) in README.md explains why this repo does that.
+
 **What these do:**
 - `flake.nix`: Declares your system configuration entry point
 - `configuration-darwin.nix`: Contains all macOS-specific system settings and package lists
