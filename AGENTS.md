@@ -25,6 +25,17 @@ Deliberate decisions in this repo - do NOT silently revert them:
   identity there would follow every clone. `bootstrap.sh` step 5 prompts for it and writes it to the
   untracked `~/.gitconfig.local`, which `programs.git.includes` pulls in. Do not add
   `programs.git.settings.user` back, and never commit `~/.gitconfig.local`.
+- The git identity report lives once, in `lib/git-identity.sh`, and both `bootstrap.sh` and
+  `rebuild.sh` call it only AFTER the switch: the switch is what installs `programs.git.includes`,
+  so an earlier answer describes a machine that no longer exists. It reports the value and origin
+  `git config --show-origin` names, never a claim about how git ranks config files, and never a
+  remedy for a key that some file already sets. The mode argument is the whole difference between
+  the two callers: `bootstrap.sh` passes `full` and runs once, so it also names the file behind an
+  identity resolving from somewhere other than `~/.gitconfig.local`; `rebuild.sh` passes
+  `missing-only` and runs on every switch, so it speaks only about a key git resolves to nothing.
+  Keep that split in the one function - duplicating it into the two scripts is the drift this file
+  exists to prevent. `rebuild.sh` therefore cannot go back to `exec sudo`; it keeps and re-raises
+  the switch's exit status.
 - Tests live in `tests/` and run with `./tests/run.sh` (`--strict` fails on any skipped check).
   A check that could not run must report `skip -`, never `ok -`; CI runs the strict form, so a
   new environment-dependent test needs its dependency added to `.github/workflows/ci.yml`.

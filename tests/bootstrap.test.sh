@@ -19,7 +19,14 @@
 #   of the two keys, no default offered from the wider git config, an existing
 #   ~/.gitconfig.local keeping its unrelated contents, a ~/.gitconfig setting a
 #   key the new identity also sets, an unparsable ~/.gitconfig.local that must
-#   not abort the run, and a write git refuses for one key but not the other.
+#   not abort the run, and a write git refuses for one key but not the other;
+# - the identity report both scripts make after the switch: silence when both
+#   keys resolve from ~/.gitconfig.local, no identity at all, only one of the
+#   two keys resolving, a key set to an empty value in ~/.gitconfig and in
+#   ~/.gitconfig.local, a config git cannot read at all, an identity an
+#   overriding file decides - which bootstrap.sh names and rebuild.sh keeps
+#   quiet about - and a failing switch whose exit status must survive the
+#   report.
 set -u
 
 # shellcheck source=tests/lib.sh
@@ -63,9 +70,29 @@ make_sandbox() {
   sed -i '' -E "s/^([[:space:]]*user = \")[^\"]+(\";.*)/\1$(whoami)\2/" \
     "$sb/$repo_rel/flake.nix"
 
+  # The switch is also where the git identity becomes readable: nix-darwin
+  # applies home.nix's programs.git, and that file's `include` is the only
+  # thing that pulls ~/.gitconfig.local into git's view. Reproduce exactly that
+  # part here, so the post-switch report sees what it would see on a real
+  # machine and not an identity no include had reached yet. `sudo` covers both
+  # scripts: bootstrap.sh runs `sudo nix run ... switch`, rebuild.sh runs
+  # `sudo darwin-rebuild switch`.
+  # A <sb>/sudo-exit file makes the switch fail with that status, for the cases
+  # about what a failing rebuild reports.
   cat >"$sb/bin/sudo" <<SHIM
 #!/bin/sh
 echo "sudo \$*" >>"$sb/calls.log"
+case "\$*" in
+  *"switch --flake"*)
+    mkdir -p "\$HOME/.config/git"
+    if ! grep -q 'gitconfig\.local' "\$HOME/.config/git/config" 2>/dev/null; then
+      printf '[include]\n\tpath = ~/.gitconfig.local\n' >>"\$HOME/.config/git/config"
+    fi
+    ;;
+esac
+if [ -f "$sb/sudo-exit" ]; then
+  exit "\$(cat "$sb/sudo-exit")"
+fi
 exit 0
 SHIM
   # A nix shim guarantees bootstrap.sh takes its "already installed" branch, so
@@ -514,11 +541,17 @@ GITCONFIG
   status=$(run_bootstrap "$sb" repo "$(identity_input '' 'Ada Lovelace' 'ada@example.com')")
 
   [ "$status" = 0 ] || fail "bootstrap failed against a shadowing ~/.gitconfig: $(sandbox_out "$sb")"
-  assert_contains "$(sandbox_out "$sb")" "git currently resolves user.email to \"previous@example.com\" from $sb/home/.gitconfig" \
+  assert_contains "$(sandbox_out "$sb")" "git resolves user.email to \"previous@example.com\", from $sb/home/.gitconfig." \
     "bootstrap did not report the file git reads the email from"
-  # user.name is set nowhere else, so nothing competes with the one just written.
-  assert_not_contains "$(sandbox_out "$sb")" "resolves user.name" \
-    "bootstrap reported a competing name that no file was setting"
+  assert_contains "$(sandbox_out "$sb")" "git resolves user.name to \"Ada Lovelace\", from $sb/home/.gitconfig.local." \
+    "bootstrap did not report the file git reads the name from"
+  # Nothing may be proposed for a key that already resolves: which of two files
+  # decides is not something this repo gets to assert, and unsetting the one
+  # identity the machine has is worse than the mismatch.
+  assert_not_contains "$(sandbox_out "$sb")" "git config --file ~/.gitconfig.local user.email" \
+    "bootstrap prescribed a write for an email that already resolves"
+  assert_not_contains "$(sandbox_out "$sb")" "--unset" \
+    "bootstrap told the user to unset an identity it did not write"
   [ "$(cat "$sb/home/.gitconfig")" = "$before" ] \
     || fail "bootstrap modified ~/.gitconfig instead of only reporting it"
   [ "$(gitconfig_local_value "$sb" user.email)" = "ada@example.com" ] \
@@ -598,18 +631,252 @@ GITCONFIG
     "bootstrap claimed an identity that ~/.gitconfig.local does not hold"
   assert_not_contains "$(sandbox_out "$sb")" "currently commits as" \
     "bootstrap proposed an identity from outside ~/.gitconfig.local"
-  # ~/.gitconfig.local holds nothing, so nothing there disagrees with ~/.gitconfig.
-  # Reporting a conflict here would advise unsetting the only identity present.
-  assert_not_contains "$(sandbox_out "$sb")" "Previous Owner" \
-    "bootstrap reported a conflict with an identity ~/.gitconfig.local does not hold"
-  assert_not_contains "$(sandbox_out "$sb")" "Heads up" \
-    "bootstrap reported a conflict when ~/.gitconfig.local holds nothing to conflict with"
+  # The prompt takes no default from ~/.gitconfig, but the report after the
+  # switch still says what git actually resolves - which is that identity, from
+  # that file. Naming it is the whole point; prescribing anything about it is
+  # not, since the machine already has a working identity.
+  assert_contains "$(sandbox_out "$sb")" "git resolves user.name to \"Previous Owner\", from $sb/home/.gitconfig." \
+    "bootstrap did not report the identity git resolves after the switch"
+  # Step 5 does offer to fill in the empty ~/.gitconfig.local, which is a write
+  # to this repo's own file. Removing the identity the machine already has is
+  # what must never be suggested.
+  assert_not_contains "$(sandbox_out "$sb")" "--unset" \
+    "bootstrap told the user to unset the only identity the machine has"
   [ -z "$(gitconfig_local_value "$sb" user.name)" ] \
     || fail "empty input copied another identity into ~/.gitconfig.local"
   [ -z "$(gitconfig_local_value "$sb" user.email)" ] \
     || fail "empty input copied another identity into ~/.gitconfig.local"
 
   pass "identity: no default is taken from outside ~/.gitconfig.local"
+}
+
+# --- the identity report after the switch -------------------------------------
+#
+# Both scripts ask the same question through lib/git-identity.sh, and only after
+# the switch: the switch is what installs home.nix's include of
+# ~/.gitconfig.local, so any earlier answer describes a machine that no longer
+# exists by the time the script ends. The sandbox's sudo shim installs that
+# include, exactly as nix-darwin would.
+
+# Point git at an identity that does not come from ~/.gitconfig.local, the way a
+# machine configured before this repo stopped shipping one still is.
+write_home_gitconfig() {
+  local sb=$1 name=$2 email=$3
+  {
+    printf '[user]\n'
+    [ -z "$name" ] || printf '\tname = %s\n' "$name"
+    [ -z "$email" ] || printf '\temail = %s\n' "$email"
+  } >"$sb/home/.gitconfig"
+}
+
+run_rebuild() { run_script "$1" rebuild.sh "${2:-repo}" ""; }
+
+# The silence that makes the warning worth reading: rebuild.sh runs this on
+# every switch, so a correctly configured machine must hear nothing at all.
+test_report_silent_when_identity_comes_from_managed_file() {
+  local sb status
+  sb=$(make_sandbox)
+  status=$(run_bootstrap "$sb" repo "$(identity_input '' 'Ada Lovelace' 'ada@example.com')")
+  [ "$status" = 0 ] || fail "bootstrap failed while setting a git identity: $(sandbox_out "$sb")"
+  assert_not_contains "$(sandbox_out "$sb")" "Heads up" \
+    "bootstrap warned about an identity that comes from ~/.gitconfig.local"
+
+  status=$(run_rebuild "$sb")
+
+  [ "$status" = 0 ] || fail "rebuild.sh failed after a good bootstrap: $(sandbox_out "$sb")"
+  assert_contains "$(sandbox_calls "$sb")" "sudo darwin-rebuild switch --flake $sb/home/.dotfiles#mac" \
+    "rebuild.sh did not reach the switch"
+  assert_not_contains "$(sandbox_out "$sb")" "Heads up" \
+    "rebuild.sh warned on a machine whose identity comes from ~/.gitconfig.local"
+
+  pass "report: nothing is said when both keys resolve from ~/.gitconfig.local"
+}
+
+# The migration this exists for: home.nix stopped setting an identity, so a
+# machine that had one from the tracked config and never re-ran bootstrap.sh
+# now resolves nothing, and git guesses. rebuild.sh is the only thing that runs
+# on such a machine, so it has to be what says so.
+test_rebuild_reports_when_no_identity_resolves() {
+  local sb status
+  sb=$(make_sandbox)
+  status=$(run_rebuild "$sb")
+
+  [ "$status" = 0 ] || fail "rebuild.sh failed with no identity anywhere: $(sandbox_out "$sb")"
+  assert_contains "$(sandbox_out "$sb")" "git resolves no user.name and no user.email" \
+    "rebuild.sh did not report that git resolves no identity"
+  # shellcheck disable=SC2088
+  assert_contains "$(sandbox_out "$sb")" "git config --file ~/.gitconfig.local user.name \"Your Name\"" \
+    "rebuild.sh did not say how to set the missing name"
+  # shellcheck disable=SC2088
+  assert_contains "$(sandbox_out "$sb")" "git config --file ~/.gitconfig.local user.email \"you@example.com\"" \
+    "rebuild.sh did not say how to set the missing email"
+  [ ! -e "$sb/home/.gitconfig" ] \
+    || fail "rebuild.sh created ~/.gitconfig instead of only reporting"
+  [ ! -e "$sb/home/.gitconfig.local" ] \
+    || fail "rebuild.sh wrote an identity it was only asked to report on"
+
+  pass "report: rebuild.sh warns when git resolves no identity at all"
+}
+
+# The case the captain hit: ~/.gitconfig.local is set up correctly and another
+# file still decides. bootstrap.sh runs once, right after the machine was set
+# up, so it is the moment where naming that file is worth the interruption.
+# Naming the file and the value is the whole of it; this repo cannot state which
+# file wins, so it prescribes nothing.
+test_bootstrap_reports_identity_from_another_file() {
+  local sb status before
+  sb=$(make_sandbox)
+  write_home_gitconfig "$sb" "Previous Owner" "previous@example.com"
+  before=$(cat "$sb/home/.gitconfig")
+  status=$(run_bootstrap "$sb" repo "$(identity_input '' 'Ada Lovelace' 'ada@example.com')")
+
+  [ "$status" = 0 ] || fail "bootstrap failed against an overriding ~/.gitconfig: $(sandbox_out "$sb")"
+  assert_contains "$(sandbox_out "$sb")" "git resolves user.name to \"Previous Owner\", from $sb/home/.gitconfig." \
+    "bootstrap did not name the value and file git resolves the name from"
+  assert_contains "$(sandbox_out "$sb")" "git resolves user.email to \"previous@example.com\", from $sb/home/.gitconfig." \
+    "bootstrap did not name the value and file git resolves the email from"
+  assert_not_contains "$(sandbox_out "$sb")" "--unset" \
+    "bootstrap told the user to unset an identity it does not own"
+  # shellcheck disable=SC2088
+  assert_not_contains "$(sandbox_out "$sb")" "git config --file ~/.gitconfig.local user." \
+    "bootstrap prescribed a write for keys that already resolve"
+  [ "$(cat "$sb/home/.gitconfig")" = "$before" ] \
+    || fail "bootstrap modified ~/.gitconfig instead of only reporting it"
+
+  pass "report: bootstrap.sh names the file an overriding identity comes from"
+}
+
+# The same machine, one switch later. An identity deliberately kept in
+# ~/.gitconfig or in a work includeIf is a correct setup, and rebuild.sh runs on
+# every switch - so it says nothing here, where bootstrap.sh already spoke once.
+test_rebuild_silent_when_a_whole_identity_resolves_elsewhere() {
+  local sb status
+  sb=$(make_sandbox)
+  git config --file "$sb/home/.gitconfig.local" user.name "Ada Lovelace"
+  git config --file "$sb/home/.gitconfig.local" user.email "ada@example.com"
+  write_home_gitconfig "$sb" "Previous Owner" "previous@example.com"
+  status=$(run_rebuild "$sb")
+
+  [ "$status" = 0 ] || fail "rebuild.sh failed against an overriding ~/.gitconfig: $(sandbox_out "$sb")"
+  assert_not_contains "$(sandbox_out "$sb")" "Heads up" \
+    "rebuild.sh warned on every rebuild about an identity another file decides"
+
+  pass "report: rebuild.sh stays quiet when a whole identity resolves from another file"
+}
+
+# A key some file sets to an empty value is not a key nothing sets: git names
+# that file, so the report names it too. Calling it unset would prescribe a
+# write into ~/.gitconfig.local, and this repo cannot say that would change what
+# git resolves.
+test_report_key_set_to_an_empty_value_names_its_file() {
+  local sb status
+  sb=$(make_sandbox)
+  printf '[user]\n\tname = Previous Owner\n\temail = \n' >"$sb/home/.gitconfig"
+  status=$(run_rebuild "$sb")
+
+  [ "$status" = 0 ] || fail "rebuild.sh failed with an empty user.email: $(sandbox_out "$sb")"
+  assert_contains "$(sandbox_out "$sb")" "git resolves user.email to \"\", from $sb/home/.gitconfig." \
+    "rebuild.sh did not name the file that sets user.email to an empty value"
+  assert_not_contains "$(sandbox_out "$sb")" "git resolves no user.email" \
+    "rebuild.sh called a key some file sets one that nothing sets"
+  # shellcheck disable=SC2088
+  assert_not_contains "$(sandbox_out "$sb")" "git config --file ~/.gitconfig.local user.email" \
+    "rebuild.sh prescribed a write for a key some file already sets"
+
+  pass "report: a key set to an empty value is reported with the file that sets it"
+}
+
+# The same empty value, this time in the file this setup owns. Both keys still
+# resolve from ~/.gitconfig.local, so the report may not claim the identity
+# comes from somewhere else - that would contradict the two lines it prints
+# directly underneath.
+test_report_empty_value_in_the_managed_file_is_not_called_foreign() {
+  local sb status
+  sb=$(make_sandbox)
+  printf '[user]\n\tname = Ada Lovelace\n\temail =\n' >"$sb/home/.gitconfig.local"
+  status=$(run_rebuild "$sb")
+
+  [ "$status" = 0 ] || fail "rebuild.sh failed with an empty user.email: $(sandbox_out "$sb")"
+  assert_contains "$(sandbox_out "$sb")" "git resolves user.name to \"Ada Lovelace\", from $sb/home/.gitconfig.local." \
+    "rebuild.sh did not report the name ~/.gitconfig.local sets"
+  assert_contains "$(sandbox_out "$sb")" "git resolves user.email to \"\", from $sb/home/.gitconfig.local." \
+    "rebuild.sh did not report the empty value ~/.gitconfig.local sets"
+  # shellcheck disable=SC2088
+  assert_not_contains "$(sandbox_out "$sb")" "does not resolve your whole identity from ~/.gitconfig.local" \
+    "rebuild.sh denied the very file it then named for both keys"
+  assert_not_contains "$(sandbox_out "$sb")" "will invent an identity" \
+    "rebuild.sh claimed git would invent an identity a file already sets"
+
+  pass "report: an empty value in ~/.gitconfig.local is not reported as coming from elsewhere"
+}
+
+# A config git refuses to parse is not a config that sets nothing: git exits 128
+# with a complaint instead of 1 with silence, and every command it is given
+# dies. Reporting it as "no key set" would promise an invented identity and hand
+# over write commands that fail with the same parse error.
+test_report_config_git_cannot_read_repeats_gits_complaint() {
+  local sb status
+  sb=$(make_sandbox)
+  printf '[user\n\tname = Broken\n' >"$sb/home/.gitconfig.local"
+  status=$(run_rebuild "$sb")
+
+  [ "$status" = 0 ] || fail "rebuild.sh failed against an unparsable config: $(sandbox_out "$sb")"
+  assert_contains "$(sandbox_out "$sb")" "git cannot read this machine's config" \
+    "rebuild.sh did not say git could not read the config"
+  # Nothing else rebuild.sh prints names that path, so this is git's own
+  # complaint being repeated rather than a message this repo composed.
+  assert_contains "$(sandbox_out "$sb")" "$sb/home/.gitconfig.local" \
+    "rebuild.sh swallowed git's own complaint, which names the broken file"
+  assert_not_contains "$(sandbox_out "$sb")" "will invent an identity" \
+    "rebuild.sh promised an invented identity for a git that refuses to run"
+  assert_not_contains "$(sandbox_out "$sb")" "git resolves no user.name" \
+    "rebuild.sh reported an unreadable config as a key nothing sets"
+  # shellcheck disable=SC2088
+  assert_not_contains "$(sandbox_out "$sb")" "git config --file ~/.gitconfig.local user." \
+    "rebuild.sh prescribed writes that fail with the same parse error"
+
+  pass "report: a config git cannot read is reported as that, with git's own words"
+}
+
+# Half an identity is the trap: "Previous Owner <>" reads as a whole one. Each
+# key is reported on its own, and only the key that resolves to nothing gets a
+# remedy - the one that resolves is already someone's deliberate setting.
+test_rebuild_reports_one_key_at_a_time() {
+  local sb status
+  sb=$(make_sandbox)
+  write_home_gitconfig "$sb" "Previous Owner" ""
+  status=$(run_rebuild "$sb")
+
+  [ "$status" = 0 ] || fail "rebuild.sh failed with only one key set: $(sandbox_out "$sb")"
+  assert_contains "$(sandbox_out "$sb")" "git resolves user.name to \"Previous Owner\", from $sb/home/.gitconfig." \
+    "rebuild.sh did not report the one key that resolves"
+  assert_contains "$(sandbox_out "$sb")" "git resolves no user.email." \
+    "rebuild.sh did not report the key that resolves to nothing"
+  assert_not_contains "$(sandbox_out "$sb")" "Previous Owner <" \
+    "rebuild.sh assembled half an identity into an identity line"
+  # shellcheck disable=SC2088
+  assert_contains "$(sandbox_out "$sb")" "git config --file ~/.gitconfig.local user.email \"you@example.com\"" \
+    "rebuild.sh did not say how to set the key that resolves to nothing"
+  assert_not_contains "$(sandbox_out "$sb")" "git config --file ~/.gitconfig.local user.name" \
+    "rebuild.sh prescribed a write for the key that already resolves"
+
+  pass "report: one resolving key is reported as that key, never as an identity"
+}
+
+# A report is not worth an exit status. A rebuild that failed must still fail,
+# with the switch's own status, and one that worked must still succeed - which
+# is why `exec sudo` had to go.
+test_rebuild_preserves_the_switch_exit_status() {
+  local sb status
+  sb=$(make_sandbox)
+  printf '3\n' >"$sb/sudo-exit"
+  status=$(run_rebuild "$sb")
+
+  [ "$status" = 3 ] || fail "rebuild.sh returned $status instead of the switch's own status 3"
+  assert_contains "$(sandbox_out "$sb")" "git resolves no user.name and no user.email" \
+    "rebuild.sh skipped the identity report when the switch failed"
+
+  pass "report: a failing switch keeps its exit status and is still reported on"
 }
 
 test_link_created_when_absent
@@ -636,5 +903,14 @@ test_identity_competing_gitconfig_is_reported
 test_identity_unparsable_gitconfig_local_still_switches
 test_identity_partial_write_failure_is_reported_per_key
 test_identity_offers_no_default_from_global_config
+test_report_silent_when_identity_comes_from_managed_file
+test_rebuild_reports_when_no_identity_resolves
+test_bootstrap_reports_identity_from_another_file
+test_rebuild_silent_when_a_whole_identity_resolves_elsewhere
+test_report_key_set_to_an_empty_value_names_its_file
+test_report_empty_value_in_the_managed_file_is_not_called_foreign
+test_report_config_git_cannot_read_repeats_gits_complaint
+test_rebuild_reports_one_key_at_a_time
+test_rebuild_preserves_the_switch_exit_status
 
 test_summary
