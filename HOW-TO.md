@@ -7,6 +7,9 @@ This guide walks you through setting up your development environment using this 
 1. [macOS Setup](#macos-setup)
 2. [Daily Workflow](#daily-workflow)
 3. [Customizing Your Setup](#customizing-your-setup)
+4. [Troubleshooting](#troubleshooting)
+5. [Summary](#summary)
+6. [Quick Reference: What's Where](#quick-reference-whats-where)
 
 ---
 
@@ -62,11 +65,11 @@ Also check `configuration-darwin.nix` for:
 1. **Installs Determinate Nix** (if not already installed)
    - Downloads and runs the Nix installer
    - Creates `/nix` directory for Nix packages
-   
+
 2. **Symlinks the repo to `~/.dotfiles`**
    - Creates a shortcut from your home directory to this repo
    - Allows your config files to be edited in place without rebuilding
-   
+
 3. **Checks and fixes username**
    - Compares the `user = "john"` in `flake.nix` with your actual macOS username
    - Offers to update it automatically if they don't match
@@ -138,6 +141,113 @@ If the origin is some other file, that file is what you actually commit as. `~/.
 ---
 
 ## Daily Workflow
+
+### Updating to the Latest Config
+
+When changes land in the repo - yours from another machine, or anyone else's - this is how you
+bring a machine up to date:
+
+```bash
+cd ~/.dotfiles
+git pull
+./rebuild.sh
+```
+
+`~/.dotfiles` is where the repo lives - either the clone itself, if you cloned it straight to
+that path, or a symlink to wherever you did clone it. The commands work the same either way:
+`cd ~/.dotfiles` always lands you in the working copy, as does `cd ~/code/dotfiles` or whatever
+path you cloned to.
+
+**If `git pull` refuses because the working copy is dirty**
+
+git stops with `Your local changes to the following files would be overwritten by merge` when an
+incoming commit touches a file you have uncommitted changes in. Look before you discard anything:
+
+```bash
+git status
+git diff
+```
+
+The point of looking is to tell two cases apart, because they have opposite remedies.
+
+**A tool on your machine wrote it - safe to throw away.** `home/.claude/settings.json` and
+`home/.config/herdr/config.toml` are tracked *and* linked into your home directory, so tools write
+to them where you actually use them:
+
+- herdr adds a `SessionStart` hook to `settings.json` with your home directory spelled out in
+  full, whenever its Claude integration is installed or updated.
+- Claude Code rewrites `"model": "opus"` to `"opus[1m]"` once, on a 1M-context account.
+- herdr appends settings of its own to `config.toml` when you change one from inside herdr. The
+  tracked file already declares `onboarding = false` so that particular write never happens.
+
+Each is expected locally and wrong for everyone else, so none of them is ever committed. Restore
+the file and pull again:
+
+```bash
+git checkout -- home/.claude/settings.json
+git pull
+```
+
+**Your own setup wrote it - never throw it away.** `flake.nix` above all: `bootstrap.sh` rewrites
+its `user = ` and `hostName = ` lines in place to your username and your machine name, and nothing
+ever commits that edit for you. On any machine but the original author's, a modified `flake.nix`
+is almost certainly that. `git checkout -- flake.nix` would undo your setup, and the `./rebuild.sh`
+in the recipe above would then build for the wrong user against a home directory that is not
+yours.
+
+Most of the time there is nothing to do. A modified `flake.nix` only blocks the pull when an
+incoming commit touches `flake.nix` as well, and most commits do not - leave it modified and pull
+normally.
+
+When one does touch it, git refuses before merging anything. Nothing is lost and `flake.nix` is
+exactly as you left it - the pull simply does not happen. The tool-written files above are the
+ones with a safe automatic remedy. `flake.nix` is not: it carries your own username and machine
+name, so what happens to those two lines is a deliberate decision rather than a canned command.
+
+`git checkout --` throws the local change away for good, which is exactly why you read `git diff`
+before running it. See [`git status` Shows Changes You Never Made](#git-status-shows-changes-you-never-made)
+for the longer version.
+
+**Which pulled changes need `./rebuild.sh`**
+
+Files under `home/` are symlinked into place, so a pull updates your live config the moment it
+lands - no rebuild involved. Everything else - `home.nix`, `configuration-darwin.nix`,
+`flake.nix`, `flake.lock`, package lists, macOS defaults, the pinned npm CLI versions - only
+takes effect after the switch. See "How the symlinks work" in README.md for why. A rebuild that
+had nothing to do is cheap and harmless, so when you are unsure, just run it.
+
+**Check that the update applied**
+
+```bash
+git status -sb
+git log --oneline -1
+```
+
+`## main...origin/main` with no `behind` count means the working copy now has everything from the
+remote, and the log line names the commit you are on.
+
+For the switch itself, look at the system profile:
+
+```bash
+ls -l /nix/var/nix/profiles/system
+```
+
+The timestamp on that symlink is when your last switch ran, and the `system-N-link` it points at
+is the generation now active.
+
+If the pull moved a pinned npm CLI, the installed copies should match the pins:
+
+```bash
+sed -n '/npmGlobals = {/,/};/p' ~/.dotfiles/home.nix
+npm ls -g --depth=0
+```
+
+Compare every line, not just the CLI you came for. An install that fails during the switch only
+prints a warning and the switch still succeeds, so any one of them can silently stay behind.
+
+**The first pull after a long gap can take a while.** If `flake.lock` moved, the switch may
+download or build a lot of packages before it finishes - minutes, not seconds. That is expected,
+not a sign anything is wrong.
 
 ### Making Changes
 
@@ -325,18 +435,17 @@ Then apply:
 The agent CLIs (`gh-axi`, `chrome-devtools-axi`, `lavish-axi`, `tasks-axi`, `quota-axi`) are not
 in Nixpkgs, so `home.nix` pins them by version and installs them into `~/.npm-global`.
 
-Edit `home.nix` and find the `npmGlobals` attribute set near the top:
+Edit `home.nix` and find the `npmGlobals` attribute set near the top. It maps a package name to
+an exact version, one line each:
 
 ```nix
 npmGlobals = {
-  "gh-axi" = "0.1.35";
-  "chrome-devtools-axi" = "0.1.34";
-  "lavish-axi" = "0.1.67";
-  "tasks-axi" = "0.2.5";
-  "quota-axi" = "0.1.40";
-  "some-other-cli" = "1.2.3";   # <- add a new CLI here
+  "gh-axi" = "<version>";        # <- edit a version in place to bump a pin
+  "some-other-cli" = "1.2.3";    # <- add a line to add a new CLI
 };
 ```
+
+The versions in the file are the live pins - read them there rather than from this guide.
 
 Check what versions are available first:
 
@@ -533,6 +642,13 @@ cd dotfiles
 **After making changes:**
 ```bash
 cd ~/.dotfiles
+./rebuild.sh
+```
+
+**To pull changes from the repo:**
+```bash
+cd ~/.dotfiles
+git pull
 ./rebuild.sh
 ```
 

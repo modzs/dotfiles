@@ -3,6 +3,9 @@
 My personal development environment setup for macOS, managed with Nix via nix-darwin.
 One repo, one command, and a fresh Mac ends up configured the same way every time.
 
+This README covers the architecture and the reasoning behind it. For step-by-step commands -
+setup, updating a machine, customising, troubleshooting - see [HOW-TO.md](HOW-TO.md).
+
 ## Contributing / Using This Repo
 
 These are my personal dotfiles, shared publicly so people can read them, learn from them, and fork them freely.
@@ -30,45 +33,6 @@ Running the switch builds:
 - Intel Mac: change one line in `configuration-darwin.nix`, set `nixpkgs.hostPlatform = "x86_64-darwin";`
 - Network access on the first switch, and on any switch that changes a pinned npm CLI version. See "Agent toolchain" below.
 - `no-mistakes` is the one tool this repo does not install for you. It is a one-time manual step, documented under "Agent toolchain".
-
-## Employer provided machines ONLY
-
-- Clone repo as normal
-- Create untracked .local files directly into home directory
-- Set the work identity in `~/.gitconfig.local`
-```sh
-git config --file ~/.gitconfig.local user.name "Your Work Name"
-git config --file ~/.gitconfig.local user.email "your_work_email@company.com"
-```
-These two commands create the file if it isn't there and change only those two keys, so anything else you keep in it - and whatever `bootstrap.sh` already wrote there - survives. Don't replace the whole file with a `cat >` heredoc.
-- Create `~/.zshrc.local`
-```sh
-# Work-specific environment variables and aliases
-export CORPORATE_PROXY="http://proxy.company.internal:8080"
-alias workvpn="openvpn --config ~/work.ovpn"
-```
-Running `git status` inside your dotfiles folder ignores these `.local` files entirely. You can freely pull shared updates with `git pull` without merge conflicts or leaking work data.
-
-Both hooks are already wired into `home.nix`, so creating the files is all you need to do:
-
-- `programs.zsh.initContent` sources `~/.zshrc.local` if it exists.
-- `programs.git.includes` pulls in `~/.gitconfig.local`.
-
-**Where your git identity lives:** `home.nix` sets no name or email of its own - it only pulls in `~/.gitconfig.local` through `programs.git.includes`, so that file is where your identity belongs, whether `bootstrap.sh` wrote it for you or you wrote a work one there yourself. One caveat on a machine that was used before: another config file can set the same key, and `user.name` and `user.email` are decided one at a time. `git config --show-origin --get user.email` names the file git is actually reading it from. `bootstrap.sh` reports it when git reads a different value for either key from another file, and never edits that file for you.
-
-## Why It Won't Disrupt Anything
-
-- Missing Files Are Safely Ignored:
-
-The `[[ -f ~/.zshrc.local ]]` guard in `programs.zsh.initContent` checks that the file exists before sourcing it, so a personal machine without `.zshrc.local` skips it silently without errors.
-Git ignores a missing `include.path` target automatically, so `programs.git.includes` is equally harmless when `~/.gitconfig.local` isn't there.
-
-- Your Day-to-Day Workflow Stays Identical:
-
-You continue staging, committing, and pushing exactly as you do now (`git add .`, `git commit`, `git push`).
-The added `.gitignore` rules only ensure that any future `.local` files remain private to the machine where they were created.
-
-
 
 ## Fresh-machine setup
 
@@ -122,6 +86,10 @@ Edit the config files in place, then apply:
 That's it.
 No separate build-and-copy step.
 
+To bring a machine up to date with changes that landed elsewhere, pull first.
+[Updating to the Latest Config](HOW-TO.md#updating-to-the-latest-config) has the commands, what to
+do when the pull refuses, which changes need the rebuild at all, and how to check that it applied.
+
 ## Make it yours
 
 This repo is mine. If you clone it, review these before you run `bootstrap.sh`:
@@ -157,6 +125,9 @@ Read through these arrays before running `bootstrap.sh` for the first time, and 
 - `home/.claude/settings.json` registers `SessionStart` hooks that run `gh-axi`, `chrome-devtools-axi`, and `lavish-axi` on every Claude Code session.
   Those three tools generate that block themselves via `<tool> setup hooks`; it is committed here so a fresh machine gets it without running anything.
   Delete the `hooks` key if you don't want them.
+- `home/.claude/settings.json` also sets `"model": "opus"`, so every Claude Code session on this machine starts on Opus.
+  That is my deliberate default, not the account one - a fork inherits it, and Opus is the more expensive model.
+  Change or drop the `model` key if you'd rather use your account default.
 - Home Manager prepends `~/.npm-global/bin` and `~/.no-mistakes/bin` to `PATH`, so anything you install there shadows a same-named Homebrew binary.
 
 ### Migrating a machine that already had the identity in `home.nix`
@@ -167,17 +138,34 @@ to edit them there. It no longer sets either: the identity lives in `~/.gitconfi
 only in the `~/.config/git/config` that Home Manager generates, and no `~/.gitconfig.local` -
 so the next `./rebuild.sh` regenerates that file with an include pointing at nothing, and git
 falls back to guessing an author from your account and hostname. Write the file once, before
-that rebuild:
-
-```sh
-git config --file ~/.gitconfig.local user.name "Your Name"
-git config --file ~/.gitconfig.local user.email "you@example.com"
-```
+that rebuild: [Setting the Git Identity](HOW-TO.md#setting-the-git-identity) has the commands.
 
 `git config --show-origin --get user.email` afterwards names the file git reads it from.
 
+## Employer-provided machines
+
+Clone the repo and run `bootstrap.sh` as normal. Everything work-specific goes into two untracked
+files in your home directory, outside this repo:
+
+- `~/.gitconfig.local` - your work git identity. `programs.git.includes` pulls it in.
+- `~/.zshrc.local` - work-specific environment variables and aliases. `programs.zsh.initContent`
+  sources it.
+
+Both hooks are already wired into `home.nix`, so creating the files is all you need to do. The
+commands are in [Adding Work-Specific Configuration](HOW-TO.md#adding-work-specific-configuration-employer-machine).
+
+**Where your git identity lives:** `home.nix` sets no name or email of its own - it only pulls in `~/.gitconfig.local` through `programs.git.includes`, so that file is where your identity belongs, whether `bootstrap.sh` wrote it for you or you wrote a work one there yourself. One caveat on a machine that was used before: another config file can set the same key, and `user.name` and `user.email` are decided one at a time. `git config --show-origin --get user.email` names the file git is actually reading it from. `bootstrap.sh` reports it when git reads a different value for either key from another file, and never edits that file for you.
+
+**Why this disrupts nothing.** Both hooks are guarded: the `[[ -f ~/.zshrc.local ]]` test in
+`programs.zsh.initContent` checks the file exists before sourcing it, and git ignores a missing
+`include.path` target, so a personal machine without either file skips them silently. Your
+day-to-day git workflow is unchanged. And because both `.local` files live in your home directory
+rather than inside this repo, git never sees them at all - there is nothing to leak into a commit,
+and nothing to conflict when you `git pull` shared updates.
+
 ## Repo tour
 
+- `HOW-TO.md` - the step-by-step companion to this file: setup, updating a machine, customising, troubleshooting.
 - `flake.nix` - the entry point. Declares the single `mac` nix-darwin configuration.
 - `configuration-darwin.nix` - system-level config: macOS defaults, Homebrew.
 - `home.nix` - user-level config: shell, packages, prompt, symlinks, and the pinned npm agent CLIs.
