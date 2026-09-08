@@ -125,6 +125,8 @@ test_claude_settings_declare_no_machine_local_paths() {
   # the path sits rather than just reporting that the bytes matched. An
   # unreadable or malformed file exits 3, a found path exits 2, so the shell can
   # tell the two apart and never prescribe a destructive remedy for the wrong one.
+  # The ${...} below are JavaScript template literals, not shell expansions.
+  # shellcheck disable=SC2016
   node -e '
     const fs = require("fs");
     let settings;
