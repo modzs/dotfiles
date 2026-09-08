@@ -504,7 +504,7 @@ git checkout -- home/.claude/settings.json
 
 Leave the integration installed - it is what tells herdr whether a Claude pane is working or
 idle. `./tests/run.sh` fails with this same instruction if the file still carries an absolute
-`/Users/` path, so the check runs before anything reaches a commit.
+`/Users/` path, and CI runs the same suite on every pull request.
 
 ### Homebrew Packages Were Deleted
 

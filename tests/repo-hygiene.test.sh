@@ -114,6 +114,7 @@ if config["onboarding"] is not False:
 
 test_claude_settings_declare_no_machine_local_paths() {
   local settings=$ROOT/home/.claude/settings.json
+  local status=0
 
   if ! command -v node >/dev/null 2>&1; then
     skip "Claude settings machine-local path check (node not found)"
@@ -121,10 +122,18 @@ test_claude_settings_declare_no_machine_local_paths() {
   fi
 
   # A real JSON parser walks every key and string value, so the failure can name
-  # where the path sits rather than just reporting that the bytes matched.
+  # where the path sits rather than just reporting that the bytes matched. An
+  # unreadable or malformed file exits 3, a found path exits 2, so the shell can
+  # tell the two apart and never prescribe a destructive remedy for the wrong one.
   node -e '
     const fs = require("fs");
-    const settings = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+    let settings;
+    try {
+      settings = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+    } catch (error) {
+      console.error(error.message);
+      process.exit(3);
+    }
     const found = [];
     const walk = (node, path) => {
       if (typeof node === "string") {
@@ -142,10 +151,15 @@ test_claude_settings_declare_no_machine_local_paths() {
     walk(settings, "");
     if (found.length) {
       console.error(found.join("\n"));
-      process.exit(1);
+      process.exit(2);
     }
-  ' "$settings" \
-    || fail "home/.claude/settings.json carries an absolute /Users/ path; that is a machine-local tool write - restore it with: git checkout -- home/.claude/settings.json"
+  ' "$settings" || status=$?
+
+  if [ "$status" -eq 2 ]; then
+    fail "home/.claude/settings.json carries an absolute /Users/ path; that is a machine-local tool write - restore it with: git checkout -- home/.claude/settings.json"
+  elif [ "$status" -ne 0 ]; then
+    fail "home/.claude/settings.json could not be read or parsed as JSON; fix the file itself - do not run git checkout, that would discard whatever you are editing"
+  fi
 
   pass "claude: the linked settings.json declares no machine-local /Users/ path"
 }
