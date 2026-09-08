@@ -120,7 +120,7 @@ gh-axi --version
 If `which node` points into `/opt/homebrew`, a leftover Homebrew Node is shadowing the Nix
 one; see "Migrating a machine that already had Homebrew Node" in README.md.
 
-### Step 5: Fix the Git Identity
+### Step 5: Verify the Git Identity
 
 Nothing in this repo sets a git name or email. `bootstrap.sh` step 5 prompts for yours and writes it to the untracked `~/.gitconfig.local`, which `home.nix` pulls in through `programs.git.includes`. If you skipped that prompt, nothing in this config sets an identity.
 
