@@ -86,16 +86,9 @@ Edit the config files in place, then apply:
 That's it.
 No separate build-and-copy step.
 
-To bring a machine up to date with changes that landed elsewhere, pull first:
-
-```sh
-cd ~/.dotfiles
-git pull
-./rebuild.sh
-```
-
-[Updating to the Latest Config](HOW-TO.md#updating-to-the-latest-config) covers what to do when
-the pull refuses, which changes need the rebuild at all, and how to check that it applied.
+To bring a machine up to date with changes that landed elsewhere, pull first.
+[Updating to the Latest Config](HOW-TO.md#updating-to-the-latest-config) has the commands, what to
+do when the pull refuses, which changes need the rebuild at all, and how to check that it applied.
 
 ## Make it yours
 
@@ -296,11 +289,6 @@ Pi's package system declares two third-party sources in the linked global `setti
 The versions are immutable pins, so Pi does not move them during package updates. Deliberate updates require a new source and security audit, followed by an explicit pin change in `home/.pi/agent/settings.json`. On Pi 0.82.0, global settings declarations install missing pinned packages automatically at startup. No one-time install command is required. Pi keeps the downloaded npm package trees in its own unmanaged `~/.pi/agent/npm` runtime directory, outside Home Manager and Git tracking.
 
 Both packages execute with your full user permissions and must be trusted like any other executable code.
-
-An earlier revision of this config also pinned an experimental `git:` package. Dropping it from
-`settings.json` stops Pi loading it, but Pi's already-downloaded copy stays behind under
-`~/.pi/agent/git` on a machine that activated the old config. That tree is unmanaged runtime
-state, not something Pi reads once the pin is gone - delete it if you want the space back.
 
 Home Manager deliberately does not manage `~/.pi/agent` itself, or Pi authentication, sessions, trust decisions, caches, npm package trees, or any other runtime state. The model overrides contain no credentials or endpoint settings, do not choose a default model, and only take effect after you authenticate Pi yourself. This remains an additive post-video layer: it does not install Pi, a launcher, or package source code into this repository.
 

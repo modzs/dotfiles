@@ -620,6 +620,13 @@ cd ~/.dotfiles
 ./rebuild.sh
 ```
 
+**To pull changes from the repo:**
+```bash
+cd ~/.dotfiles
+git pull
+./rebuild.sh
+```
+
 **Key commands:**
 - `./rebuild.sh` - Apply configuration changes
 - `nano ~/.dotfiles/home.nix` - Edit home-manager config
