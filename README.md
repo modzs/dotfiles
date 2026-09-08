@@ -138,12 +138,7 @@ to edit them there. It no longer sets either: the identity lives in `~/.gitconfi
 only in the `~/.config/git/config` that Home Manager generates, and no `~/.gitconfig.local` -
 so the next `./rebuild.sh` regenerates that file with an include pointing at nothing, and git
 falls back to guessing an author from your account and hostname. Write the file once, before
-that rebuild:
-
-```sh
-git config --file ~/.gitconfig.local user.name "Your Name"
-git config --file ~/.gitconfig.local user.email "you@example.com"
-```
+that rebuild: [Setting the Git Identity](HOW-TO.md#setting-the-git-identity) has the commands.
 
 `git config --show-origin --get user.email` afterwards names the file git reads it from.
 

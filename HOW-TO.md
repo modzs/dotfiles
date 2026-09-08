@@ -216,7 +216,7 @@ is the generation now active.
 If the pull moved a pinned npm CLI, the installed copy should match the pin:
 
 ```bash
-grep -A 6 "npmGlobals" ~/.dotfiles/home.nix
+sed -n '/npmGlobals = {/,/};/p' ~/.dotfiles/home.nix
 gh-axi --version
 ```
 
