@@ -7,6 +7,8 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 
 # shellcheck source=lib/dotfiles-link.sh
 . "$DIR/lib/dotfiles-link.sh"
+# shellcheck source=lib/git-identity.sh
+. "$DIR/lib/git-identity.sh"
 
 # Everything below resolves through ~/.dotfiles, so settle that path before
 # anything is installed and before sudo is asked for. Refusing here costs the
@@ -110,32 +112,6 @@ print_gitconfig_local_state() {
   fi
 }
 
-# Another file on the machine can set the same key, one key at a time, so a
-# stale [user] section holding only an email yields a mixed identity that is
-# harder to spot than a plainly wrong one. Repeat git's own answer - the value
-# and the file it came from - and stop there: which file ends up deciding is
-# git's business, and this script neither models that nor touches the file.
-# Only keys ~/.gitconfig.local actually holds are compared; with nothing of our
-# own to disagree with, there is nothing to report. $HOME rather than the
-# current directory, so a repository's own config is not read as a machine-wide
-# one.
-report_competing_identity_key() {
-  local key=$1 own=$2 resolved origin value
-  [ -n "$own" ] || return 0
-  resolved="$(git -C "$HOME" config --show-origin --get "$key" 2>/dev/null || true)"
-  case "$resolved" in
-    file:*) : ;;
-    *) return 0 ;;
-  esac
-  value="${resolved#*$'\t'}"
-  origin="${resolved%%$'\t'*}"
-  origin="${origin#file:}"
-  [ "$origin" != "$GITCONFIG_LOCAL" ] || return 0
-  [ "$value" != "$own" ] || return 0
-  echo "    Heads up: git currently resolves $key to \"$value\" from $origin,"
-  echo "    while ~/.gitconfig.local holds \"$own\". This script leaves $origin alone."
-}
-
 # A hand-edited ~/.gitconfig.local can be unparsable, and then every read of it
 # comes back empty - indistinguishable from a file that simply sets nothing.
 # Ask git once, keep its complaint, and report that instead of a false "holds
@@ -206,9 +182,6 @@ if [ -z "$GITCONFIG_LOCAL_ERROR" ] && [ -z "$UNWRITABLE" ]; then
       || echo "      git config --file ~/.gitconfig.local user.email \"you@example.com\""
   fi
 fi
-report_competing_identity_key user.name "$FINAL_GIT_NAME"
-report_competing_identity_key user.email "$FINAL_GIT_EMAIL"
-
 echo "==> Step 6: first build and switch"
 # darwin-rebuild doesn't exist yet on a fresh machine, so run it straight from
 # the flake this once. After this, rebuild.sh works normally.
@@ -229,5 +202,11 @@ NIX_BIN="$(command -v nix)"
 # flake.nix and rebuild.sh too.
 sudo "$NIX_BIN" run github:nix-darwin/nix-darwin/nix-darwin-26.05#darwin-rebuild -- \
   switch --flake ~/.dotfiles#mac
+
+# Only now is the answer final: the switch is what installs home.nix's include
+# of ~/.gitconfig.local, so before it git could not have read the file step 5
+# just wrote. Asked any earlier, this reported a conflict that the switch itself
+# then resolved. It stays silent unless something is worth saying.
+git_identity_report "    "
 
 echo "==> Done. Use ./rebuild.sh for future changes."
