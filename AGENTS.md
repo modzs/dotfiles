@@ -36,6 +36,16 @@ Deliberate decisions in this repo - do NOT silently revert them:
   not commit that value: the bracketed form encodes an account entitlement, not a repo choice.
 - `skipDangerousModePermissionPrompt: true` in the same file is intentional: this machine runs
   agents unattended, and the startup prompt would block them. Do not remove it as a "hardening" fix.
+- herdr writes a `SessionStart` hook into `home/.claude/settings.json` (absolute
+  `/Users/<name>/.claude/hooks/herdr-agent-state.sh`) when its Claude integration is installed or
+  updated. Expected, machine-local, and never committed - the path is one machine's home and the
+  script is not in this repo. The remedy is `git checkout -- home/.claude/settings.json`;
+  `tests/repo-hygiene.test.sh` fails on any absolute `/Users/` path in that file.
+- Do NOT stop that write with `herdr integration uninstall claude`. Firstmate classifies worker
+  state from herdr's native agent state, which that hook is the source of, so uninstalling trades
+  a rare cosmetic diff for firstmate no longer telling a working crewmate from a dead one. There
+  is no cleaner mechanism: Claude Code has exactly one user-scope settings file (no
+  `~/.claude/settings.local.json`), and herdr only ever writes there.
 - `onboarding = false` in `home/.config/herdr/config.toml` is a real preference, not stray runtime
   state: herdr appends that key the first time onboarding is dismissed, and `~/.config/herdr` is an
   out-of-store symlink, so an undeclared key lands as an unexplained diff. Declaring it leaves herdr

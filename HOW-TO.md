@@ -487,6 +487,25 @@ echo $NODE_EXTRA_CA_CERTS
 **Expected output:** `/etc/ssl/certs/ca-certificates.crt`. If it's empty, run `exec zsh` to pick
 up the current session variables.
 
+### `git status` Shows Changes You Never Made
+
+`home.nix` points `~/.claude` and `~/.config/herdr` straight at this repo, so tools that write
+their own config write into your working tree. Most of that is runtime noise and already
+gitignored, but one write is real: when herdr installs or updates its Claude integration it adds
+a `SessionStart` hook to `home/.claude/settings.json` with your home directory spelled out in
+full.
+
+That hook is correct on your machine and wrong everywhere else, so it is never committed. Restore
+the file and carry on:
+
+```bash
+git checkout -- home/.claude/settings.json
+```
+
+Leave the integration installed - it is what tells herdr whether a Claude pane is working or
+idle. `./tests/run.sh` fails with this same instruction if the file still carries an absolute
+`/Users/` path, so the check runs before anything reaches a commit.
+
 ### Homebrew Packages Were Deleted
 
 The config has `cleanup = "zap"` enabled, which removes packages not in the list. If packages disappeared:

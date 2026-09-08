@@ -9,6 +9,7 @@
 # - the herdr runtime artifacts (~/.config/herdr is an out-of-store symlink
 #   into this repo, so everything herdr writes lands in the working tree);
 # - the one key herdr writes into its own tracked config.toml;
+# - machine-local absolute paths in the linked Claude settings.json;
 # - the package sources Pi installs from the linked global settings.json.
 set -u
 
@@ -96,6 +97,59 @@ if config["onboarding"] is not False:
   pass "herdr: the tracked config.toml already declares onboarding = false"
 }
 
+# --- machine-local paths in the linked Claude settings -------------------------
+#
+# home.nix links ~/.claude/settings.json at this file with mkOutOfStoreSymlink,
+# so herdr writes its Claude SessionStart hook - `bash '/Users/<name>/.claude/
+# hooks/herdr-agent-state.sh' session` - straight into the working tree when the
+# integration is installed or updated. That write is expected and stays local
+# (see AGENTS.md); committing it is the real hazard. It would bake one machine's
+# home directory into a public repo whose only personalization knob is the
+# `user` variable in flake.nix, leak that username, and point every other
+# machine at a script this repo does not ship.
+#
+# The check is deliberately about the shape, not this one hook's text: any
+# absolute /Users/ path is machine-local, so a future integration version that
+# writes a different command is caught too.
+
+test_claude_settings_declare_no_machine_local_paths() {
+  local settings=$ROOT/home/.claude/settings.json
+
+  if ! command -v node >/dev/null 2>&1; then
+    skip "Claude settings machine-local path check (node not found)"
+    return 0
+  fi
+
+  # A real JSON parser walks every key and string value, so the failure can name
+  # where the path sits rather than just reporting that the bytes matched.
+  node -e '
+    const fs = require("fs");
+    const settings = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+    const found = [];
+    const walk = (node, path) => {
+      if (typeof node === "string") {
+        if (node.includes("/Users/")) found.push(`${path}: ${node}`);
+        return;
+      }
+      if (Array.isArray(node)) return node.forEach((v, i) => walk(v, `${path}[${i}]`));
+      if (node && typeof node === "object") {
+        for (const [key, value] of Object.entries(node)) {
+          if (key.includes("/Users/")) found.push(`${path}.${key} (key)`);
+          walk(value, `${path}.${key}`);
+        }
+      }
+    };
+    walk(settings, "");
+    if (found.length) {
+      console.error(found.join("\n"));
+      process.exit(1);
+    }
+  ' "$settings" \
+    || fail "home/.claude/settings.json carries an absolute /Users/ path; that is a machine-local tool write - restore it with: git checkout -- home/.claude/settings.json"
+
+  pass "claude: the linked settings.json declares no machine-local /Users/ path"
+}
+
 # --- Pi package sources -------------------------------------------------------
 #
 # Pi installs every source listed in the linked global settings.json at startup,
@@ -130,6 +184,7 @@ test_pi_declares_only_immutable_npm_pins() {
 
 test_herdr_runtime_artifacts_never_dirty_the_repo
 test_herdr_config_declares_onboarding
+test_claude_settings_declare_no_machine_local_paths
 test_pi_declares_only_immutable_npm_pins
 
 test_summary
