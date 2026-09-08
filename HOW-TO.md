@@ -193,13 +193,29 @@ its `user = ` and `hostName = ` lines in place to your username and your machine
 ever commits that edit for you. On any machine but the original author's, a modified `flake.nix`
 is almost certainly that. `git checkout -- flake.nix` would undo your setup, and the `./rebuild.sh`
 in the recipe above would then build for the wrong user against a home directory that is not
-yours. Commit it instead, then pull:
+yours.
+
+Most of the time there is nothing to do. A modified `flake.nix` only blocks the pull when an
+incoming commit touches `flake.nix` as well, and most commits do not - leave it modified and pull
+normally.
+
+When an incoming commit does touch it, reconcile instead of discarding:
 
 ```bash
-git add flake.nix
-git commit -m "Set user and hostName for this machine"
+git stash
 git pull
+git stash pop
 ```
+
+If `git stash pop` reports a conflict, resolve it by keeping your own `user` and `hostName` lines
+and taking the incoming version of everything else. Those two lines are the machine-local values
+`bootstrap.sh` wrote for this Mac, and upstream never needs them. A conflicted pop leaves the
+stash entry in place, so run `git stash drop` once the file looks right.
+
+Committing `user` on your own fork is fine - it is per-person and stable. Do not commit
+`hostName`. `flake.nix` carries a single one for the single `mac` configuration, and nix-darwin
+applies it to `HostName`, `LocalHostName`, and `ComputerName` on every switch, so a committed
+`hostName` renames your other machines the next time they run `./rebuild.sh`.
 
 `git checkout --` throws the local change away for good, which is exactly why you read `git diff`
 before running it. See [`git status` Shows Changes You Never Made](#git-status-shows-changes-you-never-made)
