@@ -26,7 +26,10 @@
 #   ~/.gitconfig.local, a config git cannot read at all, an identity an
 #   overriding file decides - which bootstrap.sh names and rebuild.sh keeps
 #   quiet about - and a failing switch whose exit status must survive the
-#   report.
+#   report;
+# - the step 6 guard for a nix missing from PATH: the failure reported with its
+#   remedy instead of a silent exit, and the same report absent when nix is
+#   there.
 set -u
 
 # shellcheck source=tests/lib.sh
@@ -912,18 +915,17 @@ test_switch_reports_a_missing_nix() {
   pass "switch: a missing nix is reported with its remedy instead of a silent exit"
 }
 
+# The negative half of the case above, and the only claim it makes: every other
+# case already drives bootstrap this way and asserts it reaches the switch.
 test_switch_guard_stays_quiet_when_nix_is_present() {
-  local sb status
+  local sb
   sb=$(make_sandbox)
-  status=$(run_bootstrap "$sb")
+  run_bootstrap "$sb" >/dev/null
 
-  [ "$status" = 0 ] || fail "bootstrap failed with nix on PATH: $(sandbox_out "$sb")"
   case "$(sandbox_out "$sb")" in
     *"nix is not on this shell's PATH"*)
       fail "bootstrap reported a missing nix while nix was on PATH" ;;
   esac
-  assert_contains "$(sandbox_calls "$sb")" "switch --flake $sb/home/.dotfiles#mac" \
-    "bootstrap did not reach the switch with nix on PATH"
 
   pass "switch: the missing-nix guard stays quiet when nix is on PATH"
 }
