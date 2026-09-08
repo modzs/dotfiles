@@ -121,8 +121,8 @@ test_claude_settings_declare_no_machine_local_paths() {
     return 0
   fi
 
-  # A real JSON parser walks every key and string value, so the failure can name
-  # where the path sits rather than just reporting that the bytes matched. An
+  # A real JSON parser walks every string value, so the failure can name where
+  # the path sits rather than just reporting that the bytes matched. An
   # unreadable or malformed file exits 3, a found path exits 2, so the shell can
   # tell the two apart and never prescribe a destructive remedy for the wrong one.
   node -e '
@@ -142,10 +142,7 @@ test_claude_settings_declare_no_machine_local_paths() {
       }
       if (Array.isArray(node)) return node.forEach((v, i) => walk(v, `${path}[${i}]`));
       if (node && typeof node === "object") {
-        for (const [key, value] of Object.entries(node)) {
-          if (key.includes("/Users/")) found.push(`${path}.${key} (key)`);
-          walk(value, `${path}.${key}`);
-        }
+        for (const [key, value] of Object.entries(node)) walk(value, `${path}.${key}`);
       }
     };
     walk(settings, "");

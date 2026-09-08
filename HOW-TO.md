@@ -489,14 +489,16 @@ up the current session variables.
 
 ### `git status` Shows Changes You Never Made
 
-`home.nix` points `~/.claude` and `~/.config/herdr` straight at this repo, so tools that write
-their own config write into your working tree. Most of that is runtime noise and already
-gitignored, but one write is real: when herdr installs or updates its Claude integration it adds
-a `SessionStart` hook to `home/.claude/settings.json` with your home directory spelled out in
-full.
+`home.nix` links `~/.config/herdr` as a whole directory and, under `~/.claude`, exactly two
+files: `settings.json` and `CLAUDE.md` (which points at `home/AGENTS.md`). Everything else in
+`~/.claude` - `hooks/`, `projects/`, `history.jsonl` - is ordinary local state that never reaches
+this repo. The herdr directory's runtime noise is gitignored, but the linked files are tracked,
+so a tool editing one of them shows up as a change you never made.
 
-That hook is correct on your machine and wrong everywhere else, so it is never committed. Restore
-the file and carry on:
+The one you are most likely to hit: when herdr installs or updates its Claude integration it adds
+a `SessionStart` hook to `home/.claude/settings.json` with your home directory spelled out in
+full. That hook is correct on your machine and wrong everywhere else, so it is never committed.
+Restore the file and carry on:
 
 ```bash
 git checkout -- home/.claude/settings.json
@@ -505,6 +507,10 @@ git checkout -- home/.claude/settings.json
 Leave the integration installed - it is what tells herdr whether a Claude pane is working or
 idle. `./tests/run.sh` fails with this same instruction if the file still carries an absolute
 `/Users/` path, and CI runs the same suite on every pull request.
+
+Claude itself writes to the same file once on a 1M-context account, rewriting `"model": "opus"`
+to `"opus[1m]"`. Different diff, same remedy, and no absolute path for the check to catch - see
+the AGENTS.md note on the `model` key.
 
 ### Homebrew Packages Were Deleted
 
