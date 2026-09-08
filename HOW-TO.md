@@ -207,15 +207,18 @@ git pull
 git stash pop
 ```
 
-If `git stash pop` reports a conflict, resolve it by keeping your own `user` and `hostName` lines
-and taking the incoming version of everything else. Those two lines are the machine-local values
-`bootstrap.sh` wrote for this Mac, and upstream never needs them. A conflicted pop leaves the
-stash entry in place, so run `git stash drop` once the file looks right.
+`git stash pop` conflicts when the incoming commit touched `flake.nix` too. Edit the file to keep
+your own `user` and `hostName` lines - the machine-local values `bootstrap.sh` wrote for this Mac,
+which upstream never needs - along with the incoming changes. Then finish the resolution:
 
-Committing `user` on your own fork is fine - it is per-person and stable. Do not commit
-`hostName`. `flake.nix` carries a single one for the single `mac` configuration, and nix-darwin
-applies it to `HostName`, `LocalHostName`, and `ComputerName` on every switch, so a committed
-`hostName` renames your other machines the next time they run `./rebuild.sh`.
+```bash
+git add flake.nix
+git stash drop
+```
+
+`git add` is what marks the conflict resolved. Skip it and `flake.nix` stays unmerged, with no
+sign of trouble until your next `git pull` refuses: `Pulling is not possible because you have
+unmerged files`. `git stash drop` clears the stash entry, which a conflicted pop leaves behind.
 
 `git checkout --` throws the local change away for good, which is exactly why you read `git diff`
 before running it. See [`git status` Shows Changes You Never Made](#git-status-shows-changes-you-never-made)
