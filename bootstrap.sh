@@ -170,17 +170,11 @@ write_identity_key user.email "$NEW_GIT_EMAIL"
 # whatever was already there, so only a fresh read says what the file holds now.
 FINAL_GIT_NAME="$(git config --file "$GITCONFIG_LOCAL" --get user.name 2>/dev/null || true)"
 FINAL_GIT_EMAIL="$(git config --file "$GITCONFIG_LOCAL" --get user.email 2>/dev/null || true)"
-if [ -z "$GITCONFIG_LOCAL_ERROR" ] && [ -z "$UNWRITABLE" ]; then
-  if [ -n "$WROTE" ]; then
-    print_gitconfig_local_state "$FINAL_GIT_NAME" "$FINAL_GIT_EMAIL"
-  fi
-  if [ -z "$FINAL_GIT_NAME" ] || [ -z "$FINAL_GIT_EMAIL" ]; then
-    echo "    Set what is missing with:"
-    [ -n "$FINAL_GIT_NAME" ] \
-      || echo "      git config --file ~/.gitconfig.local user.name \"Your Name\""
-    [ -n "$FINAL_GIT_EMAIL" ] \
-      || echo "      git config --file ~/.gitconfig.local user.email \"you@example.com\""
-  fi
+# What is still missing is left to the post-switch report below. That is the
+# only moment the answer is final, and advice given before it is the defect this
+# whole arrangement exists to remove.
+if [ -z "$GITCONFIG_LOCAL_ERROR" ] && [ -z "$UNWRITABLE" ] && [ -n "$WROTE" ]; then
+  print_gitconfig_local_state "$FINAL_GIT_NAME" "$FINAL_GIT_EMAIL"
 fi
 echo "==> Step 6: first build and switch"
 # darwin-rebuild doesn't exist yet on a fresh machine, so run it straight from

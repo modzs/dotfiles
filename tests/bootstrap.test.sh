@@ -22,7 +22,8 @@
 #   not abort the run, and a write git refuses for one key but not the other;
 # - the identity report both scripts make after the switch: silence when both
 #   keys resolve from ~/.gitconfig.local, no identity at all, only one of the
-#   two keys resolving, a key some file sets to an empty value, an identity an
+#   two keys resolving, a key set to an empty value in ~/.gitconfig and in
+#   ~/.gitconfig.local, a config git cannot read at all, an identity an
 #   overriding file decides - which bootstrap.sh names and rebuild.sh keeps
 #   quiet about - and a failing switch whose exit status must survive the
 #   report.
@@ -785,6 +786,58 @@ test_report_key_set_to_an_empty_value_names_its_file() {
   pass "report: a key set to an empty value is reported with the file that sets it"
 }
 
+# The same empty value, this time in the file this setup owns. Both keys still
+# resolve from ~/.gitconfig.local, so the report may not claim the identity
+# comes from somewhere else - that would contradict the two lines it prints
+# directly underneath.
+test_report_empty_value_in_the_managed_file_is_not_called_foreign() {
+  local sb status
+  sb=$(make_sandbox)
+  printf '[user]\n\tname = Ada Lovelace\n\temail =\n' >"$sb/home/.gitconfig.local"
+  status=$(run_rebuild "$sb")
+
+  [ "$status" = 0 ] || fail "rebuild.sh failed with an empty user.email: $(sandbox_out "$sb")"
+  assert_contains "$(sandbox_out "$sb")" "git resolves user.name to \"Ada Lovelace\", from $sb/home/.gitconfig.local." \
+    "rebuild.sh did not report the name ~/.gitconfig.local sets"
+  assert_contains "$(sandbox_out "$sb")" "git resolves user.email to \"\", from $sb/home/.gitconfig.local." \
+    "rebuild.sh did not report the empty value ~/.gitconfig.local sets"
+  # shellcheck disable=SC2088
+  assert_not_contains "$(sandbox_out "$sb")" "does not resolve your whole identity from ~/.gitconfig.local" \
+    "rebuild.sh denied the very file it then named for both keys"
+  assert_not_contains "$(sandbox_out "$sb")" "will invent an identity" \
+    "rebuild.sh claimed git would invent an identity a file already sets"
+
+  pass "report: an empty value in ~/.gitconfig.local is not reported as coming from elsewhere"
+}
+
+# A config git refuses to parse is not a config that sets nothing: git exits 128
+# with a complaint instead of 1 with silence, and every command it is given
+# dies. Reporting it as "no key set" would promise an invented identity and hand
+# over write commands that fail with the same parse error.
+test_report_config_git_cannot_read_repeats_gits_complaint() {
+  local sb status
+  sb=$(make_sandbox)
+  printf '[user\n\tname = Broken\n' >"$sb/home/.gitconfig.local"
+  status=$(run_rebuild "$sb")
+
+  [ "$status" = 0 ] || fail "rebuild.sh failed against an unparsable config: $(sandbox_out "$sb")"
+  assert_contains "$(sandbox_out "$sb")" "git cannot read this machine's config" \
+    "rebuild.sh did not say git could not read the config"
+  # Nothing else rebuild.sh prints names that path, so this is git's own
+  # complaint being repeated rather than a message this repo composed.
+  assert_contains "$(sandbox_out "$sb")" "$sb/home/.gitconfig.local" \
+    "rebuild.sh swallowed git's own complaint, which names the broken file"
+  assert_not_contains "$(sandbox_out "$sb")" "will invent an identity" \
+    "rebuild.sh promised an invented identity for a git that refuses to run"
+  assert_not_contains "$(sandbox_out "$sb")" "git resolves no user.name" \
+    "rebuild.sh reported an unreadable config as a key nothing sets"
+  # shellcheck disable=SC2088
+  assert_not_contains "$(sandbox_out "$sb")" "git config --file ~/.gitconfig.local user." \
+    "rebuild.sh prescribed writes that fail with the same parse error"
+
+  pass "report: a config git cannot read is reported as that, with git's own words"
+}
+
 # Half an identity is the trap: "Previous Owner <>" reads as a whole one. Each
 # key is reported on its own, and only the key that resolves to nothing gets a
 # remedy - the one that resolves is already someone's deliberate setting.
@@ -855,6 +908,8 @@ test_rebuild_reports_when_no_identity_resolves
 test_bootstrap_reports_identity_from_another_file
 test_rebuild_silent_when_a_whole_identity_resolves_elsewhere
 test_report_key_set_to_an_empty_value_names_its_file
+test_report_empty_value_in_the_managed_file_is_not_called_foreign
+test_report_config_git_cannot_read_repeats_gits_complaint
 test_rebuild_reports_one_key_at_a_time
 test_rebuild_preserves_the_switch_exit_status
 

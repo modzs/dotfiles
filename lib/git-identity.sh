@@ -30,24 +30,45 @@
 #   - suggest a remedy that only works if the reader assumes a precedence rule,
 #     or one that could leave the machine with no identity at all. Setting a key
 #     is only ever proposed for a key nothing on the machine sets;
-#   - write anything. It reads git's answer and reports it.
+#   - write anything. It reads git's answer and reports it;
+#   - turn a config git could not read into a claim that nothing sets the key.
+#     That state gets git's own complaint and no remedy, since no remedy runs
+#     until the file git names is repaired.
 #
 # Must stay bash 3.2 compatible - see AGENTS.md.
 
 # Ask git what it resolves $1 to, and from where. Sets, for the caller to read
-# immediately: GIT_IDENTITY_VALUE and GIT_IDENTITY_ORIGIN. GIT_IDENTITY_ORIGIN
-# is empty exactly when nothing on this machine sets the key; a key some file
-# sets to an empty string has an origin and an empty value, and those are two
-# different states. A non-file origin - git's own command line, a blob - is
-# reported verbatim, since it is still what git answered.
+# immediately: GIT_IDENTITY_UNREADABLE, GIT_IDENTITY_ERROR, GIT_IDENTITY_VALUE
+# and GIT_IDENTITY_ORIGIN.
+#
+# git exits 1 for a key nothing sets, and 128 when it cannot read the config at
+# all - an unparsable file it was told to include, say. Both print nothing on
+# stdout, and they describe two very different machines: only the first one
+# means the key is unset. So the status is kept, and anything but 0 or 1 sets
+# GIT_IDENTITY_UNREADABLE with git's own complaint in GIT_IDENTITY_ERROR,
+# leaving value and origin empty - in that state git has told us nothing about
+# the key, and saying it is unset would be an invention.
+#
+# GIT_IDENTITY_ORIGIN is otherwise empty exactly when nothing on this machine
+# sets the key; a key some file sets to an empty string has an origin and an
+# empty value, and those are two different states. A non-file origin - git's own
+# command line, a blob - is reported verbatim, since it is still what git
+# answered.
 #
 # Asked from $HOME rather than the current directory, so the config of whatever
 # repository the script happens to sit in is not read as a machine-wide one.
 git_identity_lookup() {
-  local key=$1 resolved
+  local key=$1 resolved status=0
   GIT_IDENTITY_VALUE=""
   GIT_IDENTITY_ORIGIN=""
-  resolved="$(git -C "$HOME" config --show-origin --get "$key" 2>/dev/null || true)"
+  GIT_IDENTITY_UNREADABLE=""
+  GIT_IDENTITY_ERROR=""
+  resolved="$(git -C "$HOME" config --show-origin --get "$key" 2>/dev/null)" || status=$?
+  if [ "$status" != 0 ] && [ "$status" != 1 ]; then
+    GIT_IDENTITY_UNREADABLE=yes
+    GIT_IDENTITY_ERROR="$(git -C "$HOME" config --show-origin --get "$key" 2>&1 >/dev/null || true)"
+    return 0
+  fi
   [ -n "$resolved" ] || return 0
   # `--show-origin` prints "<origin><TAB><value>". A value may itself contain a
   # tab, so split on the first one only.
@@ -71,6 +92,12 @@ git_identity_report() {
   local unusable="" foreign=""
 
   git_identity_lookup user.name
+  if [ -n "$GIT_IDENTITY_UNREADABLE" ]; then
+    git_identity_say "$indent" "Heads up: git cannot read this machine's config, so it answers nothing"
+    git_identity_say "$indent" "about your identity. Its own complaint:"
+    git_identity_quote "$indent" "$GIT_IDENTITY_ERROR"
+    return 0
+  fi
   name_value=$GIT_IDENTITY_VALUE
   name_origin=$GIT_IDENTITY_ORIGIN
   git_identity_lookup user.email
@@ -88,9 +115,15 @@ git_identity_report() {
     [ -n "$unusable" ] || return 0
   fi
 
+  # Each header states only what was actually found. A key some file sets to an
+  # empty string still resolves from that file, so it is neither "no identity at
+  # all" nor "not from ~/.gitconfig.local", and saying either would contradict
+  # the per-key lines printed directly beneath.
   if [ -z "$name_origin" ] && [ -z "$email_origin" ]; then
     git_identity_say "$indent" "Heads up: git resolves no user.name and no user.email here, so it"
     git_identity_say "$indent" "will invent an identity for whatever you commit next."
+  elif [ -n "$unusable" ]; then
+    git_identity_say "$indent" "Heads up: git does not resolve a whole identity here."
   else
     git_identity_say "$indent" "Heads up: git does not resolve your whole identity from ~/.gitconfig.local,"
     git_identity_say "$indent" "the one file this setup writes."
@@ -121,6 +154,17 @@ git_identity_report_key() {
   else
     git_identity_say "$indent" "  git resolves $key to \"$value\", from $origin."
   fi
+}
+
+# Repeat git's own words, indented under the line that introduced them: git's
+# complaints run to several lines, and each has to stay inside the report's
+# margin.
+git_identity_quote() {
+  local indent=$1 text=$2 line
+  [ -n "$text" ] || return 0
+  while IFS= read -r line; do
+    git_identity_say "$indent" "  $line"
+  done <<< "$text"
 }
 
 # printf, not echo: an identity value is arbitrary text, and echo would eat a
