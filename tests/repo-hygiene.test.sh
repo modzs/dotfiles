@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
 # Behaviour tests for what this repository tracks and what it declares.
 #
-# Both checks run the real consumer of the artifact under test rather than
-# reading it as text: git decides what .gitignore and the index mean, and a
-# real JSON parser decides what Pi's settings.json declares.
+# Every check runs the real consumer of the artifact under test rather than
+# reading it as text: git decides what .gitignore and the index mean, and real
+# TOML and JSON parsers decide what herdr's and Pi's config files declare.
 #
 # Coverage:
 # - the herdr runtime artifacts (~/.config/herdr is an out-of-store symlink
 #   into this repo, so everything herdr writes lands in the working tree);
+# - the one key herdr writes into its own tracked config.toml;
+# - machine-local absolute paths in the linked Claude settings.json;
 # - the package sources Pi installs from the linked global settings.json.
 set -u
 
@@ -61,6 +63,106 @@ test_herdr_runtime_artifacts_never_dirty_the_repo() {
   pass "herdr: a full set of runtime artifacts leaves the working tree clean"
 }
 
+# --- herdr's own writes into its tracked config -------------------------------
+#
+# config.toml is authored, so it cannot be untracked the way the runtime
+# artifacts above were. herdr writes to it exactly once: when onboarding is
+# dismissed it appends `onboarding = false`, which lands straight in the working
+# tree. Declaring the key in the committed file leaves herdr nothing to append.
+
+test_herdr_config_declares_onboarding() {
+  if ! command -v python3 >/dev/null 2>&1; then
+    skip "herdr onboarding declaration (python3 not found)"
+    return 0
+  fi
+  if ! python3 -c 'import tomllib' >/dev/null 2>&1; then
+    skip "herdr onboarding declaration (python3 has no tomllib)"
+    return 0
+  fi
+
+  # A real TOML parser decides what the file declares, and it has to be a
+  # top-level key: appended after a table header it would read as, say,
+  # ui.onboarding, which herdr does not consult.
+  python3 -c '
+import sys, tomllib
+with open(sys.argv[1], "rb") as fh:
+    config = tomllib.load(fh)
+if "onboarding" not in config:
+    sys.exit("config.toml does not declare a top-level onboarding key")
+if config["onboarding"] is not False:
+    sys.exit("onboarding is %r, so herdr still has a value to write" % (config["onboarding"],))
+' "$ROOT/home/.config/herdr/config.toml" \
+    || fail "herdr can still append onboarding to the tracked config.toml"
+
+  pass "herdr: the tracked config.toml already declares onboarding = false"
+}
+
+# --- machine-local paths in the linked Claude settings -------------------------
+#
+# home.nix links ~/.claude/settings.json at this file with mkOutOfStoreSymlink,
+# so herdr writes its Claude SessionStart hook - `bash '/Users/<name>/.claude/
+# hooks/herdr-agent-state.sh' session` - straight into the working tree when the
+# integration is installed or updated. That write is expected and stays local
+# (see AGENTS.md); committing it is the real hazard. It would bake one machine's
+# home directory into a public repo whose only personalization knob is the
+# `user` variable in flake.nix, leak that username, and point every other
+# machine at a script this repo does not ship.
+#
+# The check is deliberately about the shape, not this one hook's text: any
+# absolute /Users/ path is machine-local, so a future integration version that
+# writes a different command is caught too.
+
+test_claude_settings_declare_no_machine_local_paths() {
+  local settings=$ROOT/home/.claude/settings.json
+  local status=0
+
+  if ! command -v node >/dev/null 2>&1; then
+    skip "Claude settings machine-local path check (node not found)"
+    return 0
+  fi
+
+  # A real JSON parser walks every string value, so the failure can name where
+  # the path sits rather than just reporting that the bytes matched. An
+  # unreadable or malformed file exits 3, a found path exits 2, so the shell can
+  # tell the two apart and never prescribe a destructive remedy for the wrong one.
+  # The ${...} below are JavaScript template literals, not shell expansions.
+  # shellcheck disable=SC2016
+  node -e '
+    const fs = require("fs");
+    let settings;
+    try {
+      settings = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+    } catch (error) {
+      console.error(error.message);
+      process.exit(3);
+    }
+    const found = [];
+    const walk = (node, path) => {
+      if (typeof node === "string") {
+        if (node.includes("/Users/")) found.push(`${path}: ${node}`);
+        return;
+      }
+      if (Array.isArray(node)) return node.forEach((v, i) => walk(v, `${path}[${i}]`));
+      if (node && typeof node === "object") {
+        for (const [key, value] of Object.entries(node)) walk(value, `${path}.${key}`);
+      }
+    };
+    walk(settings, "");
+    if (found.length) {
+      console.error(found.join("\n"));
+      process.exit(2);
+    }
+  ' "$settings" || status=$?
+
+  if [ "$status" -eq 2 ]; then
+    fail "home/.claude/settings.json carries an absolute /Users/ path; that is a machine-local tool write - restore it with: git checkout -- home/.claude/settings.json"
+  elif [ "$status" -ne 0 ]; then
+    fail "home/.claude/settings.json could not be read or parsed as JSON; fix the file itself - do not run git checkout, that would discard whatever you are editing"
+  fi
+
+  pass "claude: the linked settings.json declares no machine-local /Users/ path"
+}
+
 # --- Pi package sources -------------------------------------------------------
 #
 # Pi installs every source listed in the linked global settings.json at startup,
@@ -94,6 +196,8 @@ test_pi_declares_only_immutable_npm_pins() {
 }
 
 test_herdr_runtime_artifacts_never_dirty_the_repo
+test_herdr_config_declares_onboarding
+test_claude_settings_declare_no_machine_local_paths
 test_pi_declares_only_immutable_npm_pins
 
 test_summary
