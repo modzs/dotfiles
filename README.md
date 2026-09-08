@@ -41,9 +41,9 @@ below before you run it: `bootstrap.sh` applies the config to your machine, and 
 cleanup warning there means the first switch removes any Homebrew package this repo does not list.
 
 `bootstrap.sh` is the one-time setup. It installs Determinate Nix, symlinks this repo to
-`~/.dotfiles`, reconciles the `user` and `hostName` in `flake.nix` with the machine you are
-actually on, prompts for a git name and email and writes them to `~/.gitconfig.local` outside this
-repo, and then runs the first `darwin-rebuild switch`.
+`~/.dotfiles`, checks the `user` line in `flake.nix` against your actual username, prompts for
+the machine name to write to `hostName` and for a git name and email - which go to
+`~/.gitconfig.local`, outside this repo - and then runs the first `darwin-rebuild switch`.
 [Step 1: Clone the Repository](HOW-TO.md#step-1-clone-the-repository) through
 [Step 3: Run Bootstrap Script](HOW-TO.md#step-3-run-bootstrap-script) have the commands and what
 each step does.
