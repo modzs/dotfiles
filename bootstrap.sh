@@ -186,11 +186,16 @@ echo "==> Step 6: first build and switch"
 # installed `nix` would not be found under sudo even though it is on PATH here.
 # Resolve the absolute path first and invoke that instead - do not collapse this
 # to `sudo nix run`.
-NIX_BIN="$(command -v nix)"
-# If nix is not on this shell's PATH yet, the script stops right here with no
-# message: the failing command substitution aborts under set -euo pipefail
-# before the switch below ever runs. Open a new terminal (Determinate adds nix
-# to new shells' PATH) and re-run ./bootstrap.sh.
+# `|| true` keeps the lookup from aborting the script under set -euo pipefail,
+# so the guard below is what reports a missing nix instead of a silent exit.
+NIX_BIN="$(command -v nix || true)"
+if [ -z "$NIX_BIN" ]; then
+  echo "    nix is not on this shell's PATH, so the switch cannot run."
+  echo "    The Determinate installer only adds nix to the PATH of new shells,"
+  echo "    so a terminal opened before step 1 installed it will not have it."
+  echo "    Open a new terminal and re-run ./bootstrap.sh."
+  exit 1
+fi
 # "mac" is the flake output name, a stable config identifier. It is deliberately
 # separate from the machine name set in step 4; if you rename it, change it in
 # flake.nix and rebuild.sh too.
