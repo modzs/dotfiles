@@ -36,6 +36,11 @@ Deliberate decisions in this repo - do NOT silently revert them:
   not commit that value: the bracketed form encodes an account entitlement, not a repo choice.
 - `skipDangerousModePermissionPrompt: true` in the same file is intentional: this machine runs
   agents unattended, and the startup prompt would block them. Do not remove it as a "hardening" fix.
+- `onboarding = false` in `home/.config/herdr/config.toml` is a real preference, not stray runtime
+  state: herdr appends that key the first time onboarding is dismissed, and `~/.config/herdr` is an
+  out-of-store symlink, so an undeclared key lands as an unexplained diff. Declaring it leaves herdr
+  nothing to write. `tests/repo-hygiene.test.sh` guards it with a real TOML parser, which is why the
+  CI test job pins python3.
 - Never commit `.no-mistakes/` validation evidence to this public repo. `.no-mistakes/` is gitignored; if a validation pipeline stages evidence into a branch, drop it before merging.
 
 ## Maintaining this file

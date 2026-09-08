@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
 # Behaviour tests for what this repository tracks and what it declares.
 #
-# Both checks run the real consumer of the artifact under test rather than
-# reading it as text: git decides what .gitignore and the index mean, and a
-# real JSON parser decides what Pi's settings.json declares.
+# Every check runs the real consumer of the artifact under test rather than
+# reading it as text: git decides what .gitignore and the index mean, and real
+# TOML and JSON parsers decide what herdr's and Pi's config files declare.
 #
 # Coverage:
 # - the herdr runtime artifacts (~/.config/herdr is an out-of-store symlink
 #   into this repo, so everything herdr writes lands in the working tree);
+# - the one key herdr writes into its own tracked config.toml;
 # - the package sources Pi installs from the linked global settings.json.
 set -u
 
@@ -61,6 +62,40 @@ test_herdr_runtime_artifacts_never_dirty_the_repo() {
   pass "herdr: a full set of runtime artifacts leaves the working tree clean"
 }
 
+# --- herdr's own writes into its tracked config -------------------------------
+#
+# config.toml is authored, so it cannot be untracked the way the runtime
+# artifacts above were. herdr writes to it exactly once: when onboarding is
+# dismissed it appends `onboarding = false`, which lands straight in the working
+# tree. Declaring the key in the committed file leaves herdr nothing to append.
+
+test_herdr_config_declares_onboarding() {
+  if ! command -v python3 >/dev/null 2>&1; then
+    skip "herdr onboarding declaration (python3 not found)"
+    return 0
+  fi
+  if ! python3 -c 'import tomllib' >/dev/null 2>&1; then
+    skip "herdr onboarding declaration (python3 has no tomllib)"
+    return 0
+  fi
+
+  # A real TOML parser decides what the file declares, and it has to be a
+  # top-level key: appended after a table header it would read as, say,
+  # ui.onboarding, which herdr does not consult.
+  python3 -c '
+import sys, tomllib
+with open(sys.argv[1], "rb") as fh:
+    config = tomllib.load(fh)
+if "onboarding" not in config:
+    sys.exit("config.toml does not declare a top-level onboarding key")
+if config["onboarding"] is not False:
+    sys.exit("onboarding is %r, so herdr still has a value to write" % (config["onboarding"],))
+' "$ROOT/home/.config/herdr/config.toml" \
+    || fail "herdr can still append onboarding to the tracked config.toml"
+
+  pass "herdr: the tracked config.toml already declares onboarding = false"
+}
+
 # --- Pi package sources -------------------------------------------------------
 #
 # Pi installs every source listed in the linked global settings.json at startup,
@@ -94,6 +129,7 @@ test_pi_declares_only_immutable_npm_pins() {
 }
 
 test_herdr_runtime_artifacts_never_dirty_the_repo
+test_herdr_config_declares_onboarding
 test_pi_declares_only_immutable_npm_pins
 
 test_summary
