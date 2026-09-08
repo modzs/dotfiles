@@ -172,21 +172,11 @@ The point of looking is to tell two cases apart, because they have opposite reme
 
 **A tool on your machine wrote it - safe to throw away.** `home/.claude/settings.json` and
 `home/.config/herdr/config.toml` are tracked *and* linked into your home directory, so tools write
-to them where you actually use them:
-
-- herdr adds a `SessionStart` hook to `settings.json` with your home directory spelled out in
-  full, whenever its Claude integration is installed or updated.
-- Claude Code rewrites `"model": "opus"` to `"opus[1m]"` once, on a 1M-context account.
-- herdr appends settings of its own to `config.toml` when you change one from inside herdr. The
-  tracked file already declares `onboarding = false` so that particular write never happens.
-
-Each is expected locally and wrong for everyone else, so none of them is ever committed. Restore
-the file and pull again:
-
-```bash
-git checkout -- home/.claude/settings.json
-git pull
-```
+to them where you actually use them. Every such write is expected on your machine and wrong for
+everyone else, so none of them is ever committed.
+[`git status` Shows Changes You Never Made](#git-status-shows-changes-you-never-made) lists the
+writes you are likely to see and has the command that restores the file. Restore it, then run
+`git pull` again.
 
 **Your own setup wrote it - never throw it away.** `flake.nix` above all: `bootstrap.sh` rewrites
 its `user = ` and `hostName = ` lines in place to your username and your machine name, and nothing
@@ -205,8 +195,7 @@ ones with a safe automatic remedy. `flake.nix` is not: it carries your own usern
 name, so what happens to those two lines is a deliberate decision rather than a canned command.
 
 `git checkout --` throws the local change away for good, which is exactly why you read `git diff`
-before running it. See [`git status` Shows Changes You Never Made](#git-status-shows-changes-you-never-made)
-for the longer version.
+before running it.
 
 **Which pulled changes need `./rebuild.sh`**
 
@@ -608,6 +597,11 @@ idle. `./tests/run.sh` fails with this same instruction if the file still carrie
 Claude itself writes to the same file once on a 1M-context account, rewriting `"model": "opus"`
 to `"opus[1m]"`. Different diff, same remedy, and no absolute path for the check to catch - see
 the AGENTS.md note on the `model` key.
+
+herdr also appends settings of its own to `home/.config/herdr/config.toml` when you change one
+from inside herdr. The tracked file already declares `onboarding = false`, which is the write you
+would otherwise see there. Anything else that turns up in that file gets the same treatment:
+restore it as above, or declare the key in the tracked file if it is a preference you mean to keep.
 
 ### Homebrew Packages Were Deleted
 
