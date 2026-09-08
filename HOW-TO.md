@@ -199,26 +199,9 @@ Most of the time there is nothing to do. A modified `flake.nix` only blocks the 
 incoming commit touches `flake.nix` as well, and most commits do not - leave it modified and pull
 normally.
 
-When an incoming commit does touch it, reconcile instead of discarding:
-
-```bash
-git stash
-git pull
-git stash pop
-```
-
-`git stash pop` conflicts when the incoming commit touched `flake.nix` too. Edit the file to keep
-your own `user` and `hostName` lines - the machine-local values `bootstrap.sh` wrote for this Mac,
-which upstream never needs - along with the incoming changes. Then finish the resolution:
-
-```bash
-git add flake.nix
-git stash drop
-```
-
-`git add` is what marks the conflict resolved. Skip it and `flake.nix` stays unmerged, with no
-sign of trouble until your next `git pull` refuses: `Pulling is not possible because you have
-unmerged files`. `git stash drop` clears the stash entry, which a conflicted pop leaves behind.
+When one does touch it, treat it as the ordinary merge conflict it is and resolve it however you
+normally would, keeping your own `user` and `hostName` lines. They are machine-local values that
+upstream never needs.
 
 `git checkout --` throws the local change away for good, which is exactly why you read `git diff`
 before running it. See [`git status` Shows Changes You Never Made](#git-status-shows-changes-you-never-made)
