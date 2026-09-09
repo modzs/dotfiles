@@ -129,6 +129,12 @@ that rebuild: [Setting the Git Identity](HOW-TO.md#setting-the-git-identity) has
 
 ## Employer-provided machines
 
+**If your machine is managed by MDM or your employer's IT department**, this repo is not appropriate.
+This configuration unconditionally renames your machine and removes any Homebrew package not listed here - including security tools your IT department installed.
+Use [github.com/modzs/dotfiles-work](https://github.com/modzs/dotfiles-work) instead, which configures only your home directory.
+
+For machines you administer:
+
 Clone the repo and run `bootstrap.sh` as normal. Everything work-specific goes into two untracked
 files in your home directory, outside this repo:
 
@@ -137,7 +143,7 @@ files in your home directory, outside this repo:
   sources it.
 
 Both hooks are already wired into `home.nix`, so creating the files is all you need to do. The
-commands are in [Adding Work-Specific Configuration](HOW-TO.md#adding-work-specific-configuration-employer-machine).
+commands are in [Adding Work-Specific Configuration](HOW-TO.md#adding-work-specific-configuration-machines-you-administer).
 
 **Where your git identity lives:** `home.nix` sets no name or email of its own - it only pulls in `~/.gitconfig.local` through `programs.git.includes`, so that file is where your identity belongs, whether `bootstrap.sh` wrote it for you or you wrote a work one there yourself. One caveat on a machine that was used before: another config file can set the same key, and `user.name` and `user.email` are decided one at a time. `git config --show-origin --get user.email` names the file git is actually reading it from. After the switch, each script reports the value and the file git names for each key, and each speaks at the moment it is useful. `bootstrap.sh` runs once, so it also speaks when either key resolves from a file other than `~/.gitconfig.local`. `rebuild.sh` runs on every switch, so it stays quiet about that deliberate setup and speaks only when git resolves one of the two keys to nothing - no identity at all, or just the half that is missing. Neither ever edits a file it did not write.
 
