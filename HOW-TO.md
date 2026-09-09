@@ -461,9 +461,9 @@ cd ~/.dotfiles
 Do NOT use `npm install -g` by hand to change one of these. The next `./rebuild.sh` will put
 the pinned version back, which is the point of pinning. Change `home.nix` instead.
 
-### Adding Work-Specific Configuration (Employer Machine)
+### Adding Work-Specific Configuration (Machines You Administer)
 
-If you're on a work machine and need separate config:
+If you're on a work machine you administer and need separate config:
 
 Set the work identity in `~/.gitconfig.local`:
 
