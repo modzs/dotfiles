@@ -129,6 +129,12 @@ that rebuild: [Setting the Git Identity](HOW-TO.md#setting-the-git-identity) has
 
 ## Employer-provided machines
 
+**If your machine is managed by MDM or your employer's IT department**, this repo is not appropriate.
+This configuration unconditionally renames your machine and removes any Homebrew package not listed here - including security tools your IT department installed.
+Use [github.com/modzs/dotfiles-work](https://github.com/modzs/dotfiles-work) instead, which configures only your home directory.
+
+For machines you administer:
+
 Clone the repo and run `bootstrap.sh` as normal. Everything work-specific goes into two untracked
 files in your home directory, outside this repo:
 
