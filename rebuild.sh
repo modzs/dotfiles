@@ -48,7 +48,7 @@ else
   # Nothing else gets the last word after a failed switch. The report above is
   # friendly advice about git, and reading it as the closing line of a rebuild
   # that did not happen is how a failure gets mistaken for a success.
-  echo "Rebuild failed: darwin-rebuild switch exited $STATUS."
+  echo "Rebuild failed: 'sudo darwin-rebuild switch' exited $STATUS."
   echo "Fix what it reported above, then re-run ./rebuild.sh."
 fi
 

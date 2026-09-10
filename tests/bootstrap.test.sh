@@ -888,7 +888,7 @@ test_rebuild_preserves_the_switch_exit_status() {
   status=$(run_rebuild "$sb")
 
   [ "$status" = 3 ] || fail "rebuild.sh returned $status instead of the switch's own status 3"
-  assert_contains "$(sandbox_out "$sb")" "Rebuild failed: darwin-rebuild switch exited 3" \
+  assert_contains "$(sandbox_out "$sb")" "Rebuild failed: 'sudo darwin-rebuild switch' exited 3" \
     "rebuild.sh did not say the switch failed, or did not name its status"
 
   pass "report: a failing switch keeps its exit status and is named by it"
