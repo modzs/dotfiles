@@ -32,10 +32,17 @@ Deliberate decisions in this repo - do NOT silently revert them:
   remedy for a key that some file already sets. The mode argument is the whole difference between
   the two callers: `bootstrap.sh` passes `full` and runs once, so it also names the file behind an
   identity resolving from somewhere other than `~/.gitconfig.local`; `rebuild.sh` passes
-  `missing-only` and runs on every switch, so it speaks only about a key git resolves to nothing.
+  `missing-only`, runs on every switch, and so speaks only about a key git resolves to nothing.
   Keep that split in the one function - duplicating it into the two scripts is the drift this file
   exists to prevent. `rebuild.sh` therefore cannot go back to `exec sudo`; it keeps and re-raises
-  the switch's exit status.
+  the switch's exit status, and reports the identity only when that status is 0 - after a failed
+  switch the last line has to be the failure, not friendly git advice.
+- Both scripts resolve the rebuild tool's absolute path and hand *that* to `sudo`
+  (`sudo "$NIX_BIN" run ...`, `sudo "$DARWIN_REBUILD_BIN" switch ...`). Never collapse either to
+  `sudo nix`/`sudo darwin-rebuild`: sudo resolves a bare name through its own PATH, so the
+  pre-sudo guard would be checking a different command than the one that runs - a false all-clear
+  in front of a password prompt. The guards exist because a shell opened before the install or the
+  first switch never learned the PATH entry.
 - Tests live in `tests/` and run with `./tests/run.sh` (`--strict` fails on any skipped check).
   A check that could not run must report `skip -`, never `ok -`; CI runs the strict form, so a
   new environment-dependent test needs its dependency added to `.github/workflows/ci.yml`.

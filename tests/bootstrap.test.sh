@@ -29,7 +29,11 @@
 #   report;
 # - the step 6 guard for a nix missing from PATH: the failure reported with its
 #   remedy instead of a silent exit, and the same report absent when nix is
-#   there.
+#   there;
+# - rebuild.sh's own guard for a darwin-rebuild missing from PATH: refused with
+#   its remedy before sudo is ever reached, and quiet when the tool is there;
+# - what rebuild.sh says after a failed switch: the failure, last, instead of
+#   the identity report's friendly advice.
 set -u
 
 # shellcheck source=tests/lib.sh
@@ -79,7 +83,7 @@ make_sandbox() {
   # part here, so the post-switch report sees what it would see on a real
   # machine and not an identity no include had reached yet. `sudo` covers both
   # scripts: bootstrap.sh runs `sudo nix run ... switch`, rebuild.sh runs
-  # `sudo darwin-rebuild switch`.
+  # `sudo <the absolute path it resolved for darwin-rebuild> switch`.
   # A <sb>/sudo-exit file makes the switch fail with that status, for the cases
   # about what a failing rebuild reports.
   cat >"$sb/bin/sudo" <<SHIM
@@ -290,7 +294,7 @@ test_rebuild_when_repo_already_is_dotfiles() {
   [ "$status" = 0 ] || fail "rebuild.sh failed when the repo is ~/.dotfiles: $(sandbox_out "$sb")"
   [ -z "$(find "$sb/home/.dotfiles" -maxdepth 1 -type l)" ] \
     || fail "rebuild.sh planted a symlink inside the repo at ~/.dotfiles"
-  assert_contains "$(sandbox_calls "$sb")" "sudo darwin-rebuild switch --flake $sb/home/.dotfiles#mac" \
+  assert_contains "$(sandbox_calls "$sb")" "sudo $sb/bin/darwin-rebuild switch --flake $sb/home/.dotfiles#mac" \
     "rebuild.sh did not reach the switch when the repo is ~/.dotfiles"
 
   pass "rebuild: a repo cloned to ~/.dotfiles needs no link and the switch still runs"
@@ -680,7 +684,7 @@ write_home_gitconfig() {
   } >"$sb/home/.gitconfig"
 }
 
-run_rebuild() { run_script "$1" rebuild.sh "${2:-repo}" ""; }
+run_rebuild() { run_script "$1" rebuild.sh "${2:-repo}" "" "${3:-}"; }
 
 # The silence that makes the warning worth reading: rebuild.sh runs this on
 # every switch, so a correctly configured machine must hear nothing at all.
@@ -695,7 +699,7 @@ test_report_silent_when_identity_comes_from_managed_file() {
   status=$(run_rebuild "$sb")
 
   [ "$status" = 0 ] || fail "rebuild.sh failed after a good bootstrap: $(sandbox_out "$sb")"
-  assert_contains "$(sandbox_calls "$sb")" "sudo darwin-rebuild switch --flake $sb/home/.dotfiles#mac" \
+  assert_contains "$(sandbox_calls "$sb")" "sudo $sb/bin/darwin-rebuild switch --flake $sb/home/.dotfiles#mac" \
     "rebuild.sh did not reach the switch"
   assert_not_contains "$(sandbox_out "$sb")" "Heads up" \
     "rebuild.sh warned on a machine whose identity comes from ~/.gitconfig.local"
@@ -884,10 +888,80 @@ test_rebuild_preserves_the_switch_exit_status() {
   status=$(run_rebuild "$sb")
 
   [ "$status" = 3 ] || fail "rebuild.sh returned $status instead of the switch's own status 3"
-  assert_contains "$(sandbox_out "$sb")" "git resolves no user.name and no user.email" \
-    "rebuild.sh skipped the identity report when the switch failed"
+  assert_contains "$(sandbox_out "$sb")" "Rebuild failed: darwin-rebuild switch exited 3" \
+    "rebuild.sh did not say the switch failed, or did not name its status"
 
-  pass "report: a failing switch keeps its exit status and is still reported on"
+  pass "report: a failing switch keeps its exit status and is named by it"
+}
+
+# The sandbox has no identity anywhere, so a successful switch here ends on the
+# "git resolves no user.name and no user.email" advice - see the case above
+# this section. That advice reads as a normal, healthy end to a run, which is
+# the last thing a rebuild that did not happen should look like.
+test_rebuild_failed_switch_does_not_end_on_the_identity_report() {
+  local sb status out
+  sb=$(make_sandbox)
+  printf '1\n' >"$sb/sudo-exit"
+  status=$(run_rebuild "$sb")
+  out=$(sandbox_out "$sb")
+
+  [ "$status" = 1 ] || fail "rebuild.sh returned $status instead of the switch's own status 1"
+  assert_not_contains "$out" "git resolves no user.name" \
+    "rebuild.sh printed the identity report after a switch that failed"
+  assert_contains "$out" "Rebuild failed" \
+    "rebuild.sh did not report the failed switch at all"
+  case "$(printf '%s\n' "$out" | tail -n 1)" in
+    *"re-run ./rebuild.sh"*) : ;;
+    *) fail "the last line after a failed switch was not about the failure: $out" ;;
+  esac
+
+  pass "report: a failed switch ends on the failure, not on friendly git advice"
+}
+
+# --- rebuild.sh: darwin-rebuild missing from PATH ----------------------------
+#
+# The hole this section closes: rebuild.sh used to hand `darwin-rebuild` to
+# sudo unguarded, so a shell that never learned the PATH nix-darwin installs
+# made the user type a password and only then answered "command not found".
+# The guard has to fire before sudo is invoked at all, which is what the
+# absence of any sudo call in the log proves.
+
+test_rebuild_refuses_a_missing_darwin_rebuild_before_sudo() {
+  local sb status
+  sb=$(make_sandbox)
+  rm -f "$sb/bin/darwin-rebuild"
+  # The machine running this suite is usually a switched Mac with a real
+  # darwin-rebuild on PATH, and the sandbox shims are only the first entry.
+  # Pin the PATH to the shims plus the system directories, so "not on PATH"
+  # actually means that.
+  status=$(run_rebuild "$sb" repo "$sb/bin:/usr/bin:/bin:/usr/sbin:/sbin")
+
+  [ "$status" != 0 ] || fail "rebuild.sh succeeded with no darwin-rebuild on PATH: $(sandbox_out "$sb")"
+  assert_contains "$(sandbox_out "$sb")" "darwin-rebuild is not on this shell's PATH" \
+    "rebuild.sh did not say why it stopped when darwin-rebuild was missing"
+  assert_contains "$(sandbox_out "$sb")" "Open a new terminal and re-run ./rebuild.sh" \
+    "rebuild.sh did not name the remedy for a missing darwin-rebuild"
+  # No sudo call at all: the user was never asked for a password.
+  case "$(sandbox_calls "$sb")" in
+    *sudo*) fail "rebuild.sh reached sudo with no darwin-rebuild on PATH" ;;
+  esac
+
+  pass "guard: a missing darwin-rebuild is refused, with its remedy, before sudo"
+}
+
+# The negative half of the case above, and the only claim it makes: every other
+# rebuild case already asserts the switch is reached.
+test_rebuild_guard_stays_quiet_when_darwin_rebuild_is_present() {
+  local sb
+  sb=$(make_sandbox)
+  run_rebuild "$sb" >/dev/null
+
+  case "$(sandbox_out "$sb")" in
+    *"darwin-rebuild is not on this shell's PATH"*)
+      fail "rebuild.sh reported a missing darwin-rebuild while it was on PATH" ;;
+  esac
+
+  pass "guard: the missing-darwin-rebuild guard stays quiet when the tool is there"
 }
 
 # --- step 6: nix missing from PATH -------------------------------------------
@@ -963,6 +1037,9 @@ test_report_empty_value_in_the_managed_file_is_not_called_foreign
 test_report_config_git_cannot_read_repeats_gits_complaint
 test_rebuild_reports_one_key_at_a_time
 test_rebuild_preserves_the_switch_exit_status
+test_rebuild_failed_switch_does_not_end_on_the_identity_report
+test_rebuild_refuses_a_missing_darwin_rebuild_before_sudo
+test_rebuild_guard_stays_quiet_when_darwin_rebuild_is_present
 test_switch_reports_a_missing_nix
 test_switch_guard_stays_quiet_when_nix_is_present
 
