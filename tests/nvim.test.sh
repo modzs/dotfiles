@@ -164,12 +164,14 @@ test_a_file_that_does_not_load_is_named() {
 # The same session answers the pin question. It has already resolved the whole
 # spec tree, so `require('lazy').plugins()` is the managed set as lazy itself
 # understands it - no second invocation, and nothing here to drift out of step
-# with lazy's grammar. The names are compared both ways, and then each plugin's
-# checked-out revision against the commit its lock entry names. That last one is
-# not redundant: a pin lazy cannot check out still leaves the branch head cloned
-# and installed, so every other assertion here passes while the machine runs a
-# revision the repo does not pin - and lazy then writes what it actually got
-# over the tracked lock, through the out-of-store ~/.config/nvim symlink.
+# with lazy's grammar. The names are compared both ways, and then the
+# checked-out revision of every plugin lazy INSTALLS against the commit its lock
+# entry names. That last one is not redundant: a pin lazy cannot check out still
+# leaves the branch head cloned and installed, so every other assertion here
+# passes while the machine runs a revision the repo does not pin - and lazy then
+# writes what it actually got over the tracked lock, through the out-of-store
+# ~/.config/nvim symlink. lazy.nvim itself is the one plugin lazy does not
+# install, and the exemption is explained beside it in the probe.
 #
 # The orphan half has a cost, accepted rather than overlooked: lazy keeps lock
 # entries for disabled plugins on purpose (manage/lock.lua), so that re-enabling
@@ -195,7 +197,7 @@ test_a_file_that_does_not_load_is_named() {
 test_markdown_plugins_and_pins_in_a_real_session() {
   local session config data mkdp evidence
   local outcome exists rendered managed unpinned orphaned lockerror
-  local mismatch unreadable
+  local mismatch unreadable norevision
 
   if ! command -v nvim >/dev/null 2>&1; then
     skip "nvim markdown preview command check (nvim not found)"
@@ -272,15 +274,37 @@ end
 
 -- Naming the same plugins is not the same as running the pinned revision: a
 -- commit lazy cannot check out leaves the branch head cloned and installed, so
--- the name comparison alone would pass. Ask git what is actually there.
-local git = require('lazy.manage.git')
+-- the name comparison alone would pass. Ask git what is actually there. Both
+-- reads reach into lazy internals, so both are guarded: if either moves in a
+-- future lazy release, say which, and let the run report an honest skip rather
+-- than blame lazy for answering nothing.
+local has_git, git = pcall(require, 'lazy.manage.git')
+local has_config, lazy_config = pcall(require, 'lazy.core.config')
+local no_revisions
+if not has_git then
+  no_revisions = 'lazy.manage.git could not be required'
+elseif not has_config then
+  no_revisions = 'lazy.core.config could not be required'
+end
+if no_revisions then
+  out:write('norevision ' .. no_revisions .. '\n')
+end
+
+-- lazy.nvim's own revision is not lazy's to set, so it is exempt from this one
+-- comparison: lua/plugin.lua bootstraps it with `--branch=stable`, and
+-- Manage.install skips any plugin already installed with no build, so the
+-- checkout step never runs for lazy itself. Comparing it would go red the day
+-- upstream moves that tag, on a change that touched nothing here. The name
+-- comparison below still covers it, in both directions.
+local lazy_dir = has_config and lazy_config.me or nil
+
 local managed = {}
 local count = 0
 for _, plugin in ipairs(require('lazy').plugins()) do
   managed[plugin.name] = true
   count = count + 1
   local pin = lock[plugin.name]
-  if pin ~= nil then
+  if pin ~= nil and not no_revisions and plugin.dir ~= lazy_dir then
     local readable, info = pcall(git.info, plugin.dir)
     if not readable or type(info) ~= 'table' or type(info.commit) ~= 'string' then
       out:write('unreadable ' .. plugin.name .. '\n')
@@ -370,6 +394,7 @@ MD
   orphaned=$(awk '$1 == "orphaned" { print $2 }' "$session/probe.txt" | tr '\n' ' ')
   unreadable=$(awk '$1 == "unreadable" { print $2 }' "$session/probe.txt" | tr '\n' ' ')
   mismatch=$(awk '$1 == "mismatch" { $1 = ""; sub(/^ /, ""); print }' "$session/probe.txt" | tr '\n' ';')
+  norevision=$(sed -n 's/^norevision //p' "$session/probe.txt")
   lockerror=$(sed -n 's/^lockerror //p' "$session/probe.txt")
 
   if [ "$outcome" != "true" ]; then
@@ -402,15 +427,22 @@ MD
 
   pass "nvim: lazy's $managed plugins and lazy-lock.json name the same set"
 
+  # A mismatch that was actually observed is named before anything else: a
+  # revision that could not be read elsewhere must not bury a pin violation
+  # this run holds in hand.
+  if [ -n "$mismatch" ]; then
+    fail "nvim pin check: lazy-lock.json is not what got checked out: $mismatch"
+  fi
+  if [ -n "$norevision" ]; then
+    skip "nvim lazy-lock.json revision check ($norevision)"
+    return 0
+  fi
   if [ -n "$unreadable" ]; then
     skip "nvim lazy-lock.json revision check (no revision could be read for: $unreadable)"
     return 0
   fi
-  if [ -n "$mismatch" ]; then
-    fail "nvim pin check: lazy-lock.json is not what got checked out: $mismatch"
-  fi
 
-  pass "nvim: every plugin is checked out at the revision lazy-lock.json pins"
+  pass "nvim: every plugin lazy installs is checked out at the revision lazy-lock.json pins"
 }
 
 test_plugin_files_are_loadable
