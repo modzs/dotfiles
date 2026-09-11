@@ -142,7 +142,7 @@ test_a_file_that_does_not_load_is_named() {
   pass "nvim: a plugin file that does not load fails the suite by name"
 }
 
-# --- the preview command works on the first try, and lazy's plugins are pinned --
+# --- the two markdown plugins work, and lazy's set matches the lock ------------
 #
 # markdown-preview.nvim defines its three commands with `command! -buffer` from
 # its own BufEnter/FileType autocmd, so merely sourcing the plugin gives them to
@@ -154,10 +154,23 @@ test_a_file_that_does_not_load_is_named() {
 # does, rather than reading the spec file: a spec that does not work reads the
 # same as one that does.
 #
+# render-markdown.nvim draws with extmarks, so its marks are the equivalent
+# evidence, and they carry a second claim with them: AGENTS.md records that
+# nvim-treesitter is deliberately absent because the flake-pinned nvim bundles
+# the markdown parsers. Marks on this buffer are that claim holding. The count
+# is not asserted - it moves with the sample and with the plugin - only that
+# there are any.
+#
 # The same session answers the pin question. It has already resolved the whole
 # spec tree, so `require('lazy').plugins()` is the managed set as lazy itself
 # understands it - no second invocation, and nothing here to drift out of step
-# with lazy's grammar.
+# with lazy's grammar. The comparison runs both ways: a spec deleted or switched
+# to `enabled = false` leaves its lock entry orphaned and nothing else would
+# notice, since lazy simply reports one plugin fewer.
+#
+# Every failure below hands over what the run captured. A guard that states a
+# cause while discarding its evidence has been wrong here before: the probe can
+# die part-written, and then the only honest thing to report is the log.
 #
 # Installing the plugins needs the network, which puts this in the same class as
 # tests/nixpkgs-channel.test.sh: it reports skip, never ok, when it cannot run.
@@ -170,16 +183,19 @@ test_a_file_that_does_not_load_is_named() {
 # them would mean building a timer inside nvim. CI's job-level timeout is the
 # backstop, and a local run can be interrupted.
 
-test_preview_command_and_pins_in_a_real_session() {
-  local session config data mkdp outcome exists managed unpinned
+test_markdown_plugins_and_pins_in_a_real_session() {
+  local session config data mkdp evidence
+  local outcome exists rendered managed unpinned orphaned lockerror
 
   if ! command -v nvim >/dev/null 2>&1; then
     skip "nvim markdown preview command check (nvim not found)"
+    skip "nvim render-markdown extmark check (nvim not found)"
     skip "nvim lazy-lock.json pin check (nvim not found)"
     return 0
   fi
   if ! command -v git >/dev/null 2>&1; then
     skip "nvim markdown preview command check (git not found)"
+    skip "nvim render-markdown extmark check (git not found)"
     skip "nvim lazy-lock.json pin check (git not found)"
     return 0
   fi
@@ -212,23 +228,74 @@ local out = assert(io.open(os.getenv('NVIM_PROBE_OUT'), 'w'))
 local ok = pcall(vim.cmd, 'MarkdownPreviewToggle')
 out:write('toggle ' .. tostring(ok) .. ' ' .. tostring(vim.fn.exists(':MarkdownPreviewToggle')) .. '\n')
 
+-- render-markdown places no marks until a render pass runs, and creates its
+-- namespace only once loaded, so a missing namespace counts as nothing drawn.
+local function drawn()
+  local ns = vim.api.nvim_get_namespaces()['render-markdown.nvim']
+  if not ns then
+    return 0
+  end
+  return #vim.api.nvim_buf_get_extmarks(0, ns, 0, -1, {})
+end
+vim.cmd('doautocmd BufWinEnter')
+vim.wait(5000, function() return drawn() > 0 end, 50)
+out:write('rendered ' .. tostring(drawn()) .. '\n')
+
 -- Which plugins the config declares is lazy's answer to give, not this file's:
 -- it has just resolved the whole spec tree, imports and child specs included.
-local handle = assert(io.open(os.getenv('NVIM_PROBE_LOCKFILE'), 'r'))
-local lock = vim.json.decode(handle:read('*a'))
+local handle, open_err = io.open(os.getenv('NVIM_PROBE_LOCKFILE'), 'r')
+if not handle then
+  out:write('lockerror lazy-lock.json could not be read: ' .. tostring(open_err) .. '\n')
+  out:close()
+  return
+end
+local body = handle:read('*a')
 handle:close()
+local decoded, lock = pcall(vim.json.decode, body)
+if not decoded or type(lock) ~= 'table' then
+  out:write('lockerror lazy-lock.json is not valid JSON: ' .. tostring(lock) .. '\n')
+  out:close()
+  return
+end
 
-local plugins = require('lazy').plugins()
-out:write('managed ' .. tostring(#plugins) .. '\n')
-for _, plugin in ipairs(plugins) do
-  if lock[plugin.name] == nil then
-    out:write('unpinned ' .. plugin.name .. '\n')
+local managed = {}
+local count = 0
+for _, plugin in ipairs(require('lazy').plugins()) do
+  managed[plugin.name] = true
+  count = count + 1
+end
+out:write('managed ' .. tostring(count) .. '\n')
+for name in pairs(managed) do
+  if lock[name] == nil then
+    out:write('unpinned ' .. name .. '\n')
+  end
+end
+for name in pairs(lock) do
+  if not managed[name] then
+    out:write('orphaned ' .. name .. '\n')
   end
 end
 out:close()
 LUA
 
-  printf '# note\n\nBody text.\n' >"$session/note.md"
+  cat >"$session/note.md" <<'MD'
+# Heading
+
+Some **bold** text, then a list:
+
+- one
+- two
+
+> a quote
+
+```lua
+local x = 1
+```
+
+| a | b |
+| - | - |
+| 1 | 2 |
+MD
 
   env XDG_CONFIG_HOME="$config" XDG_DATA_HOME="$data" XDG_STATE_HOME="$session/state" \
     XDG_CACHE_HOME="$session/cache" SHELL=/usr/bin/true \
@@ -241,11 +308,17 @@ LUA
   mkdp=$data/nvim/lazy/markdown-preview.nvim
   if [ ! -d "$data/nvim/lazy/lazy.nvim" ]; then
     skip "nvim markdown preview command check (lazy.nvim could not be installed)"
+    skip "nvim render-markdown extmark check (lazy.nvim could not be installed)"
     skip "nvim lazy-lock.json pin check (lazy.nvim could not be installed)"
     return 0
   fi
+
+  evidence=$(cat "$session/install.log" 2>/dev/null)
+  if [ -z "$evidence" ]; then
+    evidence='no output captured'
+  fi
   if [ ! -f "$mkdp/plugin/mkdp.vim" ]; then
-    fail "nvim markdown preview: lazy installed but markdown-preview.nvim did not - lua/plugins/markdown.lua no longer declares it, or declares it disabled or misnamed. lazy said: $(cat "$session/install.log")"
+    fail "nvim markdown preview: lazy installed but markdown-preview.nvim did not - lua/plugins/markdown.lua no longer declares it, or declares it disabled or misnamed. lazy said: $evidence"
   fi
 
   env XDG_CONFIG_HOME="$config" XDG_DATA_HOME="$data" XDG_STATE_HOME="$session/state" \
@@ -254,35 +327,55 @@ LUA
     nvim --headless --cmd "source $session/noop.vim" "$session/note.md" \
       -c "luafile $session/probe.lua" -c 'quitall!' >"$session/session.log" 2>&1
 
+  evidence=$(cat "$session/session.log" "$session/probe.txt" 2>/dev/null)
+  if [ -z "$evidence" ]; then
+    evidence='no output captured'
+  fi
+
   if [ ! -f "$session/probe.txt" ]; then
-    fail "nvim session: the session recorded no result: $(cat "$session/session.log")"
+    fail "nvim session: the session recorded no result: $evidence"
   fi
   outcome=$(awk '$1 == "toggle" { print $2 }' "$session/probe.txt")
   exists=$(awk '$1 == "toggle" { print $3 }' "$session/probe.txt")
+  rendered=$(awk '$1 == "rendered" { print $2 }' "$session/probe.txt")
   managed=$(awk '$1 == "managed" { print $2 }' "$session/probe.txt")
   unpinned=$(awk '$1 == "unpinned" { print $2 }' "$session/probe.txt" | tr '\n' ' ')
+  orphaned=$(awk '$1 == "orphaned" { print $2 }' "$session/probe.txt" | tr '\n' ' ')
+  lockerror=$(sed -n 's/^lockerror //p' "$session/probe.txt")
 
   if [ "$outcome" != "true" ]; then
-    fail "nvim markdown preview: :MarkdownPreviewToggle raised an error on a markdown buffer"
+    fail "nvim markdown preview: :MarkdownPreviewToggle did not run cleanly on a markdown buffer: $evidence"
   fi
   if [ "$exists" != "2" ]; then
-    fail "nvim markdown preview: exists(':MarkdownPreviewToggle') is $exists after the first invocation, not 2 - mkdp defines its commands buffer-locally from an autocmd, so the spec needs ft = 'markdown' to have them in a buffer that is already open"
+    fail "nvim markdown preview: exists(':MarkdownPreviewToggle') is '$exists' after the first invocation, not 2 - mkdp defines its commands buffer-locally from an autocmd, so the spec needs ft = 'markdown' to have them in a buffer that is already open: $evidence"
   fi
 
   pass "nvim: :MarkdownPreviewToggle runs and survives as the first command of a session"
 
+  if [ -z "$rendered" ] || [ "$rendered" -lt 1 ]; then
+    fail "nvim render-markdown: '$rendered' extmarks on a markdown buffer - the plugin drew nothing, so either its spec is gone or the nvim in home.packages no longer bundles the markdown parsers it reads through: $evidence"
+  fi
+
+  pass "nvim: render-markdown draws $rendered extmarks with no nvim-treesitter installed"
+
+  if [ -n "$lockerror" ]; then
+    fail "nvim pin check: $lockerror"
+  fi
   if [ -z "$managed" ] || [ "$managed" -lt 1 ]; then
-    fail "nvim pin check: lazy reported no managed plugins: $(cat "$session/session.log")"
+    fail "nvim pin check: lazy reported no managed plugins: $evidence"
   fi
   if [ -n "$unpinned" ]; then
     fail "nvim pin check: lazy manages these with no lazy-lock.json entry: $unpinned"
   fi
+  if [ -n "$orphaned" ]; then
+    fail "nvim pin check: lazy-lock.json pins these but lazy manages nothing by that name: $orphaned"
+  fi
 
-  pass "nvim: all $managed plugins lazy manages have a lazy-lock.json pin"
+  pass "nvim: lazy's $managed plugins and lazy-lock.json name the same set"
 }
 
 test_plugin_files_are_loadable
 test_a_file_that_does_not_load_is_named
-test_preview_command_and_pins_in_a_real_session
+test_markdown_plugins_and_pins_in_a_real_session
 
 test_summary
