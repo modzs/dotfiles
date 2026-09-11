@@ -8,10 +8,10 @@ return {
   },
   {
     'iamcco/markdown-preview.nvim',
+    -- all three names, so lazy stubs each one and any works typed first; no ft, auto-start is off
     cmd = { 'MarkdownPreview', 'MarkdownPreviewStop', 'MarkdownPreviewToggle' },
-    ft = 'markdown',
     -- builds the preview server from the vendored app/ with the node home.nix
     -- already installs, rather than downloading a prebuilt binary
-    build = 'cd app && npx --yes yarn install',
+    build = 'cd app && npx --yes yarn@1.22.22 install',
   },
 }

@@ -18,24 +18,14 @@ set -u
 dotfiles_test_parse_args "$@"
 
 NVIM_CONFIG=$ROOT/home/.config/nvim
+TMP_ROOT=$(dotfiles_test_tmproot dotfiles-nvim)
 
-# --- every plugin file is loadable and declares its pin ------------------------
-#
-# Both checks come from one nvim run because both need the same thing: the
-# specs, as Lua values rather than as text. `--clean` keeps the machine's own
-# config out of it, so the suite tests this repository and not the user.
-
-test_plugin_specs_are_loadable_and_pinned() {
-  local script status=0 output
-
-  if ! command -v nvim >/dev/null 2>&1; then
-    skip "nvim plugin spec check (nvim not found)"
-    skip "nvim lazy-lock.json pin check (nvim not found)"
-    return 0
-  fi
-
-  script=$(dotfiles_test_tmproot dotfiles-nvim)/specs.lua
-  cat >"$script" <<'LUA'
+# The collector: takes a config directory, prints "<lua files> <plugins>", and
+# exits non-zero naming whatever is wrong. Both tests below run this same file,
+# one against the repository and one against a fixture, so the fixture really
+# does exercise the code the repository check depends on.
+SPEC_SCRIPT=$TMP_ROOT/specs.lua
+cat >"$SPEC_SCRIPT" <<'LUA'
 local config = _G.arg[1]
 local dir = config .. '/lua/plugins'
 
@@ -48,26 +38,56 @@ end
 -- the last path segment of the repo, unless the spec renames it with `name`.
 local declared = {}
 
-local function collect(spec, where)
+local function is_list(value)
+  local n = 0
+  for _ in pairs(value) do
+    n = n + 1
+    if value[n] == nil then
+      return false
+    end
+  end
+  return true
+end
+
+-- Mirrors lazy.nvim's Spec:normalize, which takes its list branch on
+-- `#spec > 1 or is_list(spec)`. That distinction is the whole point: lazy reads
+-- `{ 'a/b', 'c/d' }` as two plugins, not as one spec with a stray second field,
+-- and a collector that guessed otherwise would silently miss the second pin.
+-- Dependencies go back through here because lazy normalizes them the same way,
+-- which is what makes the single-string `dependencies = 'a/b'` form work.
+local function normalize(spec, where)
+  if type(spec) == 'string' then
+    declared[spec:match('[^/]+$')] = spec
+    return
+  end
   if type(spec) ~= 'table' then
     die(where .. ' declares a ' .. type(spec) .. ' where a plugin spec belongs')
+  end
+  if #spec > 1 or is_list(spec) then
+    for _, entry in ipairs(spec) do
+      normalize(entry, where)
+    end
+    return
   end
   local repo = spec[1]
   if type(repo) == 'string' then
     declared[spec.name or repo:match('[^/]+$')] = repo
   end
-  for _, dep in ipairs(spec.dependencies or {}) do
-    if type(dep) == 'string' then
-      declared[dep:match('[^/]+$')] = dep
-    else
-      collect(dep, where)
-    end
+  if spec.dependencies ~= nil then
+    normalize(spec.dependencies, where)
   end
 end
 
-local files = vim.fn.readdir(dir)
+-- lazy loads the .lua files out of this directory and ignores anything else,
+-- so a README or a subdirectory next to the specs must not fail the check.
+local files = {}
+for _, name in ipairs(vim.fn.readdir(dir)) do
+  if name:sub(-4) == '.lua' and vim.fn.filereadable(dir .. '/' .. name) == 1 then
+    table.insert(files, name)
+  end
+end
 if #files == 0 then
-  die(dir .. ' has no plugin files, so nothing was checked')
+  die(dir .. ' has no .lua plugin files, so nothing was checked')
 end
 
 for _, file in ipairs(files) do
@@ -83,14 +103,7 @@ for _, file in ipairs(files) do
   if type(value) ~= 'table' then
     die('lua/plugins/' .. file .. ' returns ' .. type(value) .. ', not a table')
   end
-  -- A file is either one spec (repo string first) or a list of them.
-  if type(value[1]) == 'string' then
-    collect(value, 'lua/plugins/' .. file)
-  else
-    for _, spec in ipairs(value) do
-      collect(spec, 'lua/plugins/' .. file)
-    end
-  end
+  normalize(value, 'lua/plugins/' .. file)
 end
 
 local handle = io.open(config .. '/lazy-lock.json', 'r')
@@ -115,19 +128,101 @@ if #unpinned > 0 then
   die('declared but absent from lazy-lock.json: ' .. table.concat(unpinned, ', '))
 end
 
-io.write(tostring(vim.tbl_count(declared)) .. '\n')
+io.write(tostring(#files) .. ' ' .. tostring(vim.tbl_count(declared)) .. '\n')
 LUA
 
-  output=$(nvim --clean -l "$script" "$NVIM_CONFIG" 2>&1) || status=$?
+# --- every plugin file is loadable and declares its pin ------------------------
+#
+# Both checks come from one nvim run because both need the same thing: the
+# specs, as Lua values rather than as text. `--clean` keeps the machine's own
+# config out of it, so the suite tests this repository and not the user.
+
+test_plugin_specs_are_loadable_and_pinned() {
+  local status=0 output files plugins
+
+  if ! command -v nvim >/dev/null 2>&1; then
+    skip "nvim plugin spec check (nvim not found)"
+    skip "nvim lazy-lock.json pin check (nvim not found)"
+    return 0
+  fi
+
+  output=$(nvim --clean -l "$SPEC_SCRIPT" "$NVIM_CONFIG" 2>&1) || status=$?
 
   if [ "$status" -ne 0 ]; then
     fail "nvim plugin specs: $output"
   fi
 
-  pass "nvim: every file in lua/plugins/ loads and returns a table"
-  pass "nvim: all $output declared plugins have a lazy-lock.json pin"
+  files=${output%% *}
+  plugins=${output##* }
+
+  pass "nvim: all $files .lua files in lua/plugins/ load and return a table"
+  pass "nvim: all $plugins declared plugins have a lazy-lock.json pin"
+}
+
+# --- the collector understands every shape lazy accepts ------------------------
+#
+# The guard is only worth its output if it sees every declaration lazy sees: a
+# file returning bare repo strings, a single-string `dependencies`, and a
+# directory holding something that is not Lua. Miss one and it prints ok for a
+# plugin nothing in the repository pins - the exact regression it exists to
+# catch. The fixture is a config directory of its own, checked by the same
+# script the repository check runs.
+
+test_spec_collector_sees_every_declaration_shape() {
+  local fixture plugins status output
+
+  if ! command -v nvim >/dev/null 2>&1; then
+    skip "nvim spec collector shape check (nvim not found)"
+    return 0
+  fi
+
+  fixture=$TMP_ROOT/fixture
+  plugins=$fixture/lua/plugins
+  mkdir -p "$plugins" || fail "could not create the collector fixture"
+
+  printf "return { 'owner/alpha.nvim', 'owner/beta.nvim' }\n" >"$plugins/pair.lua"
+  printf "return { { 'owner/gamma.nvim', dependencies = 'owner/delta.nvim' } }\n" >"$plugins/deps.lua"
+  printf 'Not a plugin file.\n' >"$plugins/README.md"
+
+  cat >"$fixture/lazy-lock.json" <<'JSON'
+{
+  "alpha.nvim": { "branch": "main", "commit": "0000000000000000000000000000000000000000" },
+  "beta.nvim": { "branch": "main", "commit": "0000000000000000000000000000000000000000" },
+  "gamma.nvim": { "branch": "main", "commit": "0000000000000000000000000000000000000000" },
+  "delta.nvim": { "branch": "main", "commit": "0000000000000000000000000000000000000000" }
+}
+JSON
+
+  status=0
+  output=$(nvim --clean -l "$SPEC_SCRIPT" "$fixture" 2>&1) || status=$?
+  if [ "$status" -ne 0 ]; then
+    fail "nvim spec collector rejected a fully pinned config: $output"
+  fi
+  if [ "$output" != "2 4" ]; then
+    fail "nvim spec collector reported '$output', expected '2 4' (files, plugins)"
+  fi
+
+  cat >"$fixture/lazy-lock.json" <<'JSON'
+{
+  "alpha.nvim": { "branch": "main", "commit": "0000000000000000000000000000000000000000" },
+  "gamma.nvim": { "branch": "main", "commit": "0000000000000000000000000000000000000000" }
+}
+JSON
+
+  status=0
+  output=$(nvim --clean -l "$SPEC_SCRIPT" "$fixture" 2>&1) || status=$?
+  if [ "$status" -eq 0 ]; then
+    fail "nvim spec collector passed a config with two unpinned plugins"
+  fi
+  assert_contains "$output" 'owner/beta.nvim' \
+    "nvim spec collector missed the second plugin of a two-string file: $output"
+  assert_contains "$output" 'owner/delta.nvim' \
+    "nvim spec collector missed a single-string dependency: $output"
+
+  pass "nvim: the pin guard reads list files and string dependencies, and ignores non-Lua files"
 }
 
 test_plugin_specs_are_loadable_and_pinned
+test_spec_collector_sees_every_declaration_shape
 
 test_summary
