@@ -3,13 +3,17 @@
 #
 # lua/plugins/ is loaded wholesale by `require('lazy').setup('plugins')`, so a
 # file that does not compile, or that returns something other than a table,
-# breaks every plugin in the config rather than just itself. And lazy.nvim only
+# breaks every plugin in the config rather than just itself - and lazy skips it
+# and carries on, so nothing else in a run would notice. And lazy.nvim only
 # writes a lazy-lock.json entry for a plugin it has actually installed, so a
 # spec committed without its pin is invisible until someone clones the repo on
 # a new machine and gets a different revision than the author is running.
 #
 # Neovim itself is the interpreter here, for the same reason the other suites
-# use real parsers: it is what actually loads these files.
+# use real parsers: it is what actually loads these files. Which plugins the
+# config declares is a question only lazy can answer - its spec grammar has
+# child specs, imports, dependencies and renames - so the pin check asks lazy
+# rather than re-deriving the set, and lives in the session test below.
 set -u
 
 # shellcheck source=tests/lib.sh
@@ -20,64 +24,17 @@ dotfiles_test_parse_args "$@"
 NVIM_CONFIG=$ROOT/home/.config/nvim
 TMP_ROOT=$(dotfiles_test_tmproot dotfiles-nvim)
 
-# The collector: takes a config directory, prints "<lua files> <plugins>", and
-# exits non-zero naming whatever is wrong. Both tests below run this same file,
-# one against the repository and one against a fixture, so the fixture really
-# does exercise the code the repository check depends on.
-SPEC_SCRIPT=$TMP_ROOT/specs.lua
-cat >"$SPEC_SCRIPT" <<'LUA'
-local config = _G.arg[1]
-local dir = config .. '/lua/plugins'
+# Takes a config directory, prints the number of plugin files it loaded, and
+# exits non-zero naming the first one that would not load. Both tests below run
+# this same file, one against the repository and one against a fixture, so the
+# fixture really does exercise the code the repository check depends on.
+LOAD_SCRIPT=$TMP_ROOT/loadable.lua
+cat >"$LOAD_SCRIPT" <<'LUA'
+local dir = _G.arg[1] .. '/lua/plugins'
 
 local function die(message)
   io.stderr:write(message .. '\n')
   os.exit(1)
-end
-
--- Every plugin lazy is asked to manage, keyed the way lazy keys the lock file:
--- the last path segment of the repo, unless the spec renames it with `name`.
-local declared = {}
-
-local function is_list(value)
-  local n = 0
-  for _ in pairs(value) do
-    n = n + 1
-    if value[n] == nil then
-      return false
-    end
-  end
-  return true
-end
-
--- Mirrors lazy.nvim's Spec:normalize, which takes its list branch on
--- `#spec > 1 or is_list(spec)`. That distinction is the whole point: lazy reads
--- `{ 'a/b', 'c/d' }` as two plugins, not as one spec with a stray second field,
--- and a collector that guessed otherwise would silently miss the second pin.
--- Dependencies go back through here because lazy normalizes them the same way,
--- which is what makes the single-string `dependencies = 'a/b'` form work.
-local function normalize(spec, where)
-  if type(spec) == 'string' then
-    declared[spec:match('[^/]+$')] = spec
-    return
-  end
-  if type(spec) ~= 'table' then
-    die(where .. ' declares a ' .. type(spec) .. ' where a plugin spec belongs')
-  end
-  if #spec > 1 or is_list(spec) then
-    for _, entry in ipairs(spec) do
-      normalize(entry, where)
-    end
-    return
-  end
-  local repo = spec[1]
-  if type(repo) == 'string' then
-    declared[spec.name or repo:match('[^/]+$')] = repo
-  elseif spec.dir == nil then
-    die(where .. ' declares a spec this check cannot interpret, so its pin cannot be checked')
-  end
-  if spec.dependencies ~= nil then
-    normalize(spec.dependencies, where)
-  end
 end
 
 -- lazy loads the .lua files out of this directory and ignores anything else,
@@ -93,8 +50,7 @@ if #files == 0 then
 end
 
 for _, file in ipairs(files) do
-  local path = dir .. '/' .. file
-  local chunk, err = loadfile(path)
+  local chunk, err = loadfile(dir .. '/' .. file)
   if not chunk then
     die('lua/plugins/' .. file .. ' does not compile: ' .. err)
   end
@@ -105,142 +61,88 @@ for _, file in ipairs(files) do
   if type(value) ~= 'table' then
     die('lua/plugins/' .. file .. ' returns ' .. type(value) .. ', not a table')
   end
-  normalize(value, 'lua/plugins/' .. file)
 end
 
-local handle = io.open(config .. '/lazy-lock.json', 'r')
-if not handle then
-  die('lazy-lock.json is missing, so no plugin in this config is pinned')
-end
-local body = handle:read('*a')
-handle:close()
-local ok, lock = pcall(vim.json.decode, body)
-if not ok or type(lock) ~= 'table' then
-  die('lazy-lock.json is not valid JSON: ' .. tostring(lock))
-end
-
-local unpinned = {}
-for name, repo in pairs(declared) do
-  if lock[name] == nil then
-    table.insert(unpinned, repo .. ' (expected a "' .. name .. '" entry)')
-  end
-end
-if #unpinned > 0 then
-  table.sort(unpinned)
-  die('declared but absent from lazy-lock.json: ' .. table.concat(unpinned, ', '))
-end
-
-io.write(tostring(#files) .. ' ' .. tostring(vim.tbl_count(declared)) .. '\n')
+io.write(tostring(#files) .. '\n')
 LUA
 
-# --- every plugin file is loadable and declares its pin ------------------------
+# --- every plugin file loads ---------------------------------------------------
 #
-# Both checks come from one nvim run because both need the same thing: the
-# specs, as Lua values rather than as text. `--clean` keeps the machine's own
-# config out of it, so the suite tests this repository and not the user.
+# `--clean` keeps the machine's own config out of it, so the suite tests this
+# repository and not the user.
 
-test_plugin_specs_are_loadable_and_pinned() {
-  local status=0 output files plugins
+test_plugin_files_are_loadable() {
+  local status=0 output
 
   if ! command -v nvim >/dev/null 2>&1; then
-    skip "nvim plugin spec check (nvim not found)"
-    skip "nvim lazy-lock.json pin check (nvim not found)"
+    skip "nvim plugin file load check (nvim not found)"
     return 0
   fi
 
-  output=$(nvim --clean -l "$SPEC_SCRIPT" "$NVIM_CONFIG" 2>&1) || status=$?
+  output=$(nvim --clean -l "$LOAD_SCRIPT" "$NVIM_CONFIG" 2>&1) || status=$?
 
   if [ "$status" -ne 0 ]; then
-    fail "nvim plugin specs: $output"
+    fail "nvim plugin files: $output"
   fi
 
-  files=${output%% *}
-  plugins=${output##* }
-
-  pass "nvim: all $files .lua files in lua/plugins/ load and return a table"
-  pass "nvim: all $plugins declared plugins have a lazy-lock.json pin"
+  pass "nvim: all $output .lua files in lua/plugins/ load and return a table"
 }
 
-# --- the collector understands every shape lazy accepts ------------------------
+# --- and a file that does not load is named ------------------------------------
 #
-# The guard is only worth its output if it sees every declaration lazy sees: a
-# file returning bare repo strings, a single-string `dependencies`, and a
-# directory holding something that is not Lua. Miss one and it prints ok for a
-# plugin nothing in the repository pins - the exact regression it exists to
-# catch. The fixture is a config directory of its own, checked by the same
-# script the repository check runs.
+# lazy's own behaviour is why this is not left to lazy: given an unparseable
+# file in lua/plugins/ it logs the failure, skips the file and carries on, and
+# nvim still exits 0. A run that trusted lazy alone would go green with a plugin
+# file broken, which is the silent undercoverage this suite exists to prevent.
 
-test_spec_collector_sees_every_declaration_shape() {
+test_a_file_that_does_not_load_is_named() {
   local fixture plugins status output
 
   if ! command -v nvim >/dev/null 2>&1; then
-    skip "nvim spec collector shape check (nvim not found)"
+    skip "nvim plugin file load failure check (nvim not found)"
     return 0
   fi
 
   fixture=$TMP_ROOT/fixture
   plugins=$fixture/lua/plugins
-  mkdir -p "$plugins" || fail "could not create the collector fixture"
+  mkdir -p "$plugins" || fail "could not create the plugin file fixture"
 
-  printf "return { 'owner/alpha.nvim', 'owner/beta.nvim' }\n" >"$plugins/pair.lua"
-  printf "return { { 'owner/gamma.nvim', dependencies = 'owner/delta.nvim' } }\n" >"$plugins/deps.lua"
+  printf "return { 'owner/alpha.nvim' }\n" >"$plugins/good.lua"
   printf 'Not a plugin file.\n' >"$plugins/README.md"
 
-  cat >"$fixture/lazy-lock.json" <<'JSON'
-{
-  "alpha.nvim": { "branch": "main", "commit": "0000000000000000000000000000000000000000" },
-  "beta.nvim": { "branch": "main", "commit": "0000000000000000000000000000000000000000" },
-  "gamma.nvim": { "branch": "main", "commit": "0000000000000000000000000000000000000000" },
-  "delta.nvim": { "branch": "main", "commit": "0000000000000000000000000000000000000000" }
-}
-JSON
-
   status=0
-  output=$(nvim --clean -l "$SPEC_SCRIPT" "$fixture" 2>&1) || status=$?
+  output=$(nvim --clean -l "$LOAD_SCRIPT" "$fixture" 2>&1) || status=$?
   if [ "$status" -ne 0 ]; then
-    fail "nvim spec collector rejected a fully pinned config: $output"
+    fail "nvim plugin file check rejected a loadable config: $output"
   fi
-  if [ "$output" != "2 4" ]; then
-    fail "nvim spec collector reported '$output', expected '2 4' (files, plugins)"
+  if [ "$output" != "1" ]; then
+    fail "nvim plugin file check counted $output files, expected 1 - it must ignore what is not Lua"
   fi
 
-  cat >"$fixture/lazy-lock.json" <<'JSON'
-{
-  "alpha.nvim": { "branch": "main", "commit": "0000000000000000000000000000000000000000" },
-  "gamma.nvim": { "branch": "main", "commit": "0000000000000000000000000000000000000000" }
-}
-JSON
-
+  printf 'this is not lua\n' >"$plugins/broken.lua"
   status=0
-  output=$(nvim --clean -l "$SPEC_SCRIPT" "$fixture" 2>&1) || status=$?
+  output=$(nvim --clean -l "$LOAD_SCRIPT" "$fixture" 2>&1) || status=$?
   if [ "$status" -eq 0 ]; then
-    fail "nvim spec collector passed a config with two unpinned plugins"
+    fail "nvim plugin file check passed a file that does not compile"
   fi
-  assert_contains "$output" 'owner/beta.nvim' \
-    "nvim spec collector missed the second plugin of a two-string file: $output"
-  assert_contains "$output" 'owner/delta.nvim' \
-    "nvim spec collector missed a single-string dependency: $output"
+  assert_contains "$output" 'broken.lua' \
+    "nvim plugin file check did not name the file that does not compile: $output"
+  rm -f "$plugins/broken.lua"
 
-  pass "nvim: the pin guard reads list files and string dependencies, and ignores non-Lua files"
-
-  # A spec lazy manages but this check cannot name - `{ import = ... }`, a url-only
-  # spec - has to stop the run. Passing over it quietly is how the guard would keep
-  # printing a healthy total while covering less than it claims.
-  printf "return { { import = 'plugins.extra' } }\n" >"$plugins/opaque.lua"
-
+  printf 'return 42\n' >"$plugins/scalar.lua"
   status=0
-  output=$(nvim --clean -l "$SPEC_SCRIPT" "$fixture" 2>&1) || status=$?
-  rm -f "$plugins/opaque.lua"
+  output=$(nvim --clean -l "$LOAD_SCRIPT" "$fixture" 2>&1) || status=$?
   if [ "$status" -eq 0 ]; then
-    fail "nvim spec collector passed over a spec it cannot interpret"
+    fail "nvim plugin file check passed a file that does not return a table"
   fi
-  assert_contains "$output" 'opaque.lua' \
-    "nvim spec collector did not name the file holding the spec it cannot interpret: $output"
+  assert_contains "$output" 'scalar.lua' \
+    "nvim plugin file check did not name the file that returns no table: $output"
+  rm -f "$plugins/scalar.lua"
 
-  pass "nvim: the pin guard refuses a spec it cannot interpret instead of skipping it"
+  pass "nvim: a plugin file that does not load fails the suite by name"
 }
 
-# --- the preview command works on the first try, in a real session -------------
+# --- the preview command works on the first try, and lazy's plugins are pinned --
 #
 # markdown-preview.nvim defines its three commands with `command! -buffer` from
 # its own BufEnter/FileType autocmd, so merely sourcing the plugin gives them to
@@ -251,6 +153,11 @@ JSON
 # drives the real config through lazy and asks for the preview the way a user
 # does, rather than reading the spec file: a spec that does not work reads the
 # same as one that does.
+#
+# The same session answers the pin question. It has already resolved the whole
+# spec tree, so `require('lazy').plugins()` is the managed set as lazy itself
+# understands it - no second invocation, and nothing here to drift out of step
+# with lazy's grammar.
 #
 # Installing the plugins needs the network, which puts this in the same class as
 # tests/nixpkgs-channel.test.sh: it reports skip, never ok, when it cannot run.
@@ -263,15 +170,17 @@ JSON
 # them would mean building a timer inside nvim. CI's job-level timeout is the
 # backstop, and a local run can be interrupted.
 
-test_preview_command_works_as_the_first_command() {
-  local session config data mkdp outcome exists
+test_preview_command_and_pins_in_a_real_session() {
+  local session config data mkdp outcome exists managed unpinned
 
   if ! command -v nvim >/dev/null 2>&1; then
     skip "nvim markdown preview command check (nvim not found)"
+    skip "nvim lazy-lock.json pin check (nvim not found)"
     return 0
   fi
   if ! command -v git >/dev/null 2>&1; then
     skip "nvim markdown preview command check (git not found)"
+    skip "nvim lazy-lock.json pin check (git not found)"
     return 0
   fi
 
@@ -299,9 +208,23 @@ VIM
 -- Nothing stops the preview here; the server is a job of this nvim, so quitting
 -- takes it down. `:MarkdownPreviewStop` would not - it blocks on an rpcrequest
 -- the server never answers when no page has been opened yet.
-local out = assert(io.open(os.getenv('MKDP_PROBE_OUT'), 'w'))
+local out = assert(io.open(os.getenv('NVIM_PROBE_OUT'), 'w'))
 local ok = pcall(vim.cmd, 'MarkdownPreviewToggle')
-out:write(tostring(ok) .. ' ' .. tostring(vim.fn.exists(':MarkdownPreviewToggle')) .. '\n')
+out:write('toggle ' .. tostring(ok) .. ' ' .. tostring(vim.fn.exists(':MarkdownPreviewToggle')) .. '\n')
+
+-- Which plugins the config declares is lazy's answer to give, not this file's:
+-- it has just resolved the whole spec tree, imports and child specs included.
+local handle = assert(io.open(os.getenv('NVIM_PROBE_LOCKFILE'), 'r'))
+local lock = vim.json.decode(handle:read('*a'))
+handle:close()
+
+local plugins = require('lazy').plugins()
+out:write('managed ' .. tostring(#plugins) .. '\n')
+for _, plugin in ipairs(plugins) do
+  if lock[plugin.name] == nil then
+    out:write('unpinned ' .. plugin.name .. '\n')
+  end
+end
 out:close()
 LUA
 
@@ -318,21 +241,26 @@ LUA
   mkdp=$data/nvim/lazy/markdown-preview.nvim
   if [ ! -d "$data/nvim/lazy/lazy.nvim" ]; then
     skip "nvim markdown preview command check (lazy.nvim could not be installed)"
+    skip "nvim lazy-lock.json pin check (lazy.nvim could not be installed)"
     return 0
   fi
   if [ ! -f "$mkdp/plugin/mkdp.vim" ]; then
-    fail "nvim markdown preview: lazy installed but markdown-preview.nvim did not - lua/plugins/markdown.lua no longer declares it, or declares it disabled or misnamed"
+    fail "nvim markdown preview: lazy installed but markdown-preview.nvim did not - lua/plugins/markdown.lua no longer declares it, or declares it disabled or misnamed. lazy said: $(cat "$session/install.log")"
   fi
 
   env XDG_CONFIG_HOME="$config" XDG_DATA_HOME="$data" XDG_STATE_HOME="$session/state" \
-    XDG_CACHE_HOME="$session/cache" MKDP_PROBE_OUT="$session/probe.txt" \
+    XDG_CACHE_HOME="$session/cache" NVIM_PROBE_OUT="$session/probe.txt" \
+    NVIM_PROBE_LOCKFILE="$NVIM_CONFIG/lazy-lock.json" \
     nvim --headless --cmd "source $session/noop.vim" "$session/note.md" \
       -c "luafile $session/probe.lua" -c 'quitall!' >"$session/session.log" 2>&1
 
   if [ ! -f "$session/probe.txt" ]; then
-    fail "nvim markdown preview: the session recorded no result: $(cat "$session/session.log")"
+    fail "nvim session: the session recorded no result: $(cat "$session/session.log")"
   fi
-  read -r outcome exists <"$session/probe.txt"
+  outcome=$(awk '$1 == "toggle" { print $2 }' "$session/probe.txt")
+  exists=$(awk '$1 == "toggle" { print $3 }' "$session/probe.txt")
+  managed=$(awk '$1 == "managed" { print $2 }' "$session/probe.txt")
+  unpinned=$(awk '$1 == "unpinned" { print $2 }' "$session/probe.txt" | tr '\n' ' ')
 
   if [ "$outcome" != "true" ]; then
     fail "nvim markdown preview: :MarkdownPreviewToggle raised an error on a markdown buffer"
@@ -342,10 +270,19 @@ LUA
   fi
 
   pass "nvim: :MarkdownPreviewToggle runs and survives as the first command of a session"
+
+  if [ -z "$managed" ] || [ "$managed" -lt 1 ]; then
+    fail "nvim pin check: lazy reported no managed plugins: $(cat "$session/session.log")"
+  fi
+  if [ -n "$unpinned" ]; then
+    fail "nvim pin check: lazy manages these with no lazy-lock.json entry: $unpinned"
+  fi
+
+  pass "nvim: all $managed plugins lazy manages have a lazy-lock.json pin"
 }
 
-test_plugin_specs_are_loadable_and_pinned
-test_spec_collector_sees_every_declaration_shape
-test_preview_command_works_as_the_first_command
+test_plugin_files_are_loadable
+test_a_file_that_does_not_load_is_named
+test_preview_command_and_pins_in_a_real_session
 
 test_summary
