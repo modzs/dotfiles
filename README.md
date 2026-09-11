@@ -284,6 +284,8 @@ Home Manager deliberately does not manage `~/.pi/agent` itself, or Pi authentica
 
 The first time you launch `nvim`, it bootstraps [lazy.nvim](https://github.com/folke/lazy.nvim) by cloning plugins from GitHub.
 That needs network access once; after that it's offline.
+One of them, `markdown-preview.nvim`, also builds its own preview server from vendored sources with the Node this repo installs, so that first launch reaches the npm registry as well as GitHub.
+Nothing retries a build that failed, which is the one way a plugin here can end up installed but unusable - [Markdown Preview Opens Nothing](HOW-TO.md#markdown-preview-opens-nothing) has the fix.
 `./rebuild.sh` relinks this config, it does not fetch plugins, so a newly declared plugin arrives on the next `nvim` launch rather than at the end of a switch.
 `lazy-lock.json` pins every plugin to an exact revision.
 Neovim and WezTerm both use the rose-pine moon theme.
