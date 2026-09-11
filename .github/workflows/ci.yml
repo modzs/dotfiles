@@ -75,6 +75,13 @@ jobs:
       - name: Install tmux
         run: brew install tmux
 
+      # tests/nvim.test.sh uses Neovim as the interpreter for the plugin specs
+      # in home/.config/nvim/lua/plugins, because Neovim is what actually loads
+      # them. The runner image does not ship it, and --strict turns the skip
+      # that would cause into a failure.
+      - name: Install Neovim
+        run: brew install neovim
+
       # Pinned to the version tests/pi-calm.test.sh names as its TUI proof
       # target, so an upstream Pi release cannot turn CI red on its own.
       # --ignore-scripts matches the install command documented in README.md.

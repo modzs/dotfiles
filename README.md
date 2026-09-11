@@ -284,6 +284,8 @@ Home Manager deliberately does not manage `~/.pi/agent` itself, or Pi authentica
 
 The first time you launch `nvim`, it bootstraps [lazy.nvim](https://github.com/folke/lazy.nvim) by cloning plugins from GitHub.
 That needs network access once; after that it's offline.
+`./rebuild.sh` relinks this config, it does not fetch plugins, so a newly declared plugin arrives on the next `nvim` launch rather than at the end of a switch.
+`lazy-lock.json` pins every plugin to an exact revision.
 Neovim and WezTerm both use the rose-pine moon theme.
 Neovim keeps italics off and uses a transparent background so it matches the terminal setup.
 

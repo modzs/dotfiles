@@ -78,6 +78,25 @@ Deliberate decisions in this repo - do NOT silently revert them:
   recipe is how a bug once got fixed in one copy and missed in the other. Where a procedure could
   sensibly live in either, HOW-TO.md owns step-by-step commands and troubleshooting and README.md
   owns architecture, rationale and orientation; naming a command in a sentence is not a recipe.
+- There is deliberately NO activation-time or rebuild-time `Lazy! sync`. The repo owner was
+  offered exactly that - a headless sync during the switch, so plugins are on disk when
+  `./rebuild.sh` finishes - and chose the existing behavior instead: lazy.nvim fetches on the next
+  `nvim` launch, the same as every other plugin here. Adding a sync step to `rebuild.sh`,
+  `bootstrap.sh` or a Home Manager activation script reverses a decision he made, not an oversight.
+- `nvim-treesitter` is deliberately ABSENT, even though `render-markdown.nvim` needs tree-sitter
+  parsers. The nvim in `home.packages` ships seven parsers of its own, `markdown` and
+  `markdown_inline` among them, and because nvim comes from the pinned nixpkgs, `flake.lock` pins
+  those parsers completely. Parsers `nvim-treesitter` compiles at runtime would be pinned by
+  nothing in this repo, so adding the plugin would make the config LESS reproducible, not more.
+  Verified, not assumed: with no `nvim-treesitter` installed, render-markdown renders off the
+  bundled parsers.
+- If `nvim-treesitter` is ever genuinely needed, it has to be `branch = 'main'` plus the
+  `tree-sitter` CLI in `home.packages`. Do not reach for `master`: it is the branch carrying
+  `ensure_installed`, which makes it the obvious choice, but upstream states Neovim 0.12 is
+  unsupported there and it fails concretely on the nvim this flake pins - render-markdown throws
+  `attempt to call method 'range' (a nil value)` out of nvim-treesitter's injection predicate on
+  every render and places no marks at all. `main` works but builds parsers with the `tree-sitter`
+  CLI only, with no fallback to a plain C compiler, which is why the CLI would have to come along.
 - Never commit `.no-mistakes/` validation evidence to this public repo. `.no-mistakes/` is gitignored; if a validation pipeline stages evidence into a branch, drop it before merging.
 
 ## Maintaining this file
