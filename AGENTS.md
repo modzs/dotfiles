@@ -92,9 +92,9 @@ Deliberate decisions in this repo - do NOT silently revert them:
   `attempt to call method 'range' (a nil value)` out of nvim-treesitter's injection predicate and
   places no marks at all, so it would have to be `branch = 'main'` plus the `tree-sitter` CLI.
 - `markdown-preview.nvim` is declared with `ft` only and deliberately WITHOUT `cmd`, even though
-  upstream's own lazy.nvim README shows both - which is why this keeps being proposed. The `cmd`
-  stub is not merely redundant: in a non-markdown buffer it turns an honest `E492` into a silent
-  no-op. The mechanism is beside the spec in `home/.config/nvim/lua/plugins/markdown.lua`.
+  upstream's own lazy.nvim README shows both - which is why this keeps being proposed. The
+  mechanism, and what a `cmd` stub actually costs here, is recorded beside the spec in
+  `home/.config/nvim/lua/plugins/markdown.lua`.
 - Never commit `.no-mistakes/` validation evidence to this public repo. `.no-mistakes/` is gitignored; if a validation pipeline stages evidence into a branch, drop it before merging.
 
 ## Maintaining this file
