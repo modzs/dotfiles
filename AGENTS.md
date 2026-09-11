@@ -78,6 +78,23 @@ Deliberate decisions in this repo - do NOT silently revert them:
   recipe is how a bug once got fixed in one copy and missed in the other. Where a procedure could
   sensibly live in either, HOW-TO.md owns step-by-step commands and troubleshooting and README.md
   owns architecture, rationale and orientation; naming a command in a sentence is not a recipe.
+- There is deliberately NO activation-time or rebuild-time `Lazy! sync`. The repo owner was
+  offered exactly that - a headless sync during the switch, so plugins are on disk when
+  `./rebuild.sh` finishes - and chose the existing behavior instead: lazy.nvim fetches on the next
+  `nvim` launch, the same as every other plugin here. Adding a sync step to `rebuild.sh`,
+  `bootstrap.sh` or a Home Manager activation script reverses a decision he made, not an oversight.
+- `nvim-treesitter` is deliberately ABSENT, even though `render-markdown.nvim` renders through
+  tree-sitter. The nvim in `home.packages` ships the `markdown` and `markdown_inline` parsers it
+  needs, and because that nvim comes from the pinned nixpkgs, `flake.lock` pins those parsers with
+  it, whereas parsers `nvim-treesitter` compiles at runtime would be pinned by nothing in this
+  repo - so adding the plugin would make the config LESS reproducible, not more. Anyone adding it
+  anyway will find `master` broken on the Neovim 0.12 this flake pins: render-markdown throws
+  `attempt to call method 'range' (a nil value)` out of nvim-treesitter's injection predicate and
+  places no marks at all, so it would have to be `branch = 'main'` plus the `tree-sitter` CLI.
+- `markdown-preview.nvim` is declared with `ft` only and deliberately WITHOUT `cmd`, even though
+  upstream's own lazy.nvim README shows both - which is why this keeps being proposed. The
+  mechanism, and what a `cmd` stub actually costs here, is recorded beside the spec in
+  `home/.config/nvim/lua/plugins/markdown.lua`.
 - Never commit `.no-mistakes/` validation evidence to this public repo. `.no-mistakes/` is gitignored; if a validation pipeline stages evidence into a branch, drop it before merging.
 
 ## Maintaining this file
