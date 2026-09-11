@@ -72,6 +72,8 @@ local function normalize(spec, where)
   local repo = spec[1]
   if type(repo) == 'string' then
     declared[spec.name or repo:match('[^/]+$')] = repo
+  elseif spec.dir == nil then
+    die(where .. ' declares a spec this check cannot interpret, so its pin cannot be checked')
   end
   if spec.dependencies ~= nil then
     normalize(spec.dependencies, where)
@@ -220,6 +222,22 @@ JSON
     "nvim spec collector missed a single-string dependency: $output"
 
   pass "nvim: the pin guard reads list files and string dependencies, and ignores non-Lua files"
+
+  # A spec lazy manages but this check cannot name - `{ import = ... }`, a url-only
+  # spec - has to stop the run. Passing over it quietly is how the guard would keep
+  # printing a healthy total while covering less than it claims.
+  printf "return { { import = 'plugins.extra' } }\n" >"$plugins/opaque.lua"
+
+  status=0
+  output=$(nvim --clean -l "$SPEC_SCRIPT" "$fixture" 2>&1) || status=$?
+  rm -f "$plugins/opaque.lua"
+  if [ "$status" -eq 0 ]; then
+    fail "nvim spec collector passed over a spec it cannot interpret"
+  fi
+  assert_contains "$output" 'opaque.lua' \
+    "nvim spec collector did not name the file holding the spec it cannot interpret: $output"
+
+  pass "nvim: the pin guard refuses a spec it cannot interpret instead of skipping it"
 }
 
 test_plugin_specs_are_loadable_and_pinned

@@ -8,7 +8,9 @@ return {
   },
   {
     'iamcco/markdown-preview.nvim',
-    -- all three names, so lazy stubs each one and any works typed first; no ft, auto-start is off
+    -- mkdp defines its three commands buffer-locally from an autocmd, so ft is what makes
+    -- them exist in a buffer already open; the cmd entries are lazy's stubs for a cold session
+    ft = 'markdown',
     cmd = { 'MarkdownPreview', 'MarkdownPreviewStop', 'MarkdownPreviewToggle' },
     -- builds the preview server from the vendored app/ with the node home.nix
     -- already installs, rather than downloading a prebuilt binary
