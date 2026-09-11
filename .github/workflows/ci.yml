@@ -78,9 +78,18 @@ jobs:
       # tests/nvim.test.sh uses Neovim as the interpreter for the plugin specs
       # in home/.config/nvim/lua/plugins, because Neovim is what actually loads
       # them. The runner image does not ship it, and --strict turns the skip
-      # that would cause into a failure.
-      - name: Install Neovim
-        run: brew install neovim
+      # that would cause into a failure. It has to be the Neovim this repo's own
+      # flake pins rather than Homebrew's, for the same reason shellcheck and the
+      # Pi target below are pinned, and for one more: the AGENTS.md decision
+      # record rests on the markdown and markdown_inline parsers this nvim
+      # bundles, so proving the specs load under some other Neovim would let the
+      # suite stay green while that claim quietly stopped being true.
+      # `--inputs-from .` reads the revision out of flake.lock, so the nvim under
+      # test cannot drift from the one home.packages installs.
+      - name: Install the flake-pinned Neovim
+        run: |
+          neovim=$(nix build --no-link --print-out-paths --inputs-from . 'nixpkgs#neovim')
+          echo "$neovim/bin" >>"$GITHUB_PATH"
 
       # Pinned to the version tests/pi-calm.test.sh names as its TUI proof
       # target, so an upstream Pi release cannot turn CI red on its own.

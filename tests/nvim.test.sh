@@ -240,7 +240,97 @@ JSON
   pass "nvim: the pin guard refuses a spec it cannot interpret instead of skipping it"
 }
 
+# --- the preview command works on the first try, in a real session -------------
+#
+# markdown-preview.nvim defines its three commands with `command! -buffer` from
+# its own BufEnter/FileType autocmd, so merely sourcing the plugin gives them to
+# no buffer. Declared with `cmd` alone, the first `:MarkdownPreviewToggle` of a
+# session loads the plugin, finds no command to hand the invocation to, and
+# leaves none behind - lazy has already deleted its own stub, so retyping it
+# gives E492. This repository shipped that spec once, which is why the check
+# drives the real config through lazy and asks for the preview the way a user
+# does, rather than reading the spec file: a spec that does not work reads the
+# same as one that does.
+#
+# Installing the plugins needs the network, which puts this in the same class as
+# tests/nixpkgs-channel.test.sh: it reports skip, never ok, when it cannot run.
+
+test_preview_command_works_as_the_first_command() {
+  local session config data mkdp result outcome exists
+
+  if ! command -v nvim >/dev/null 2>&1; then
+    skip "nvim markdown preview command check (nvim not found)"
+    return 0
+  fi
+  if ! command -v git >/dev/null 2>&1; then
+    skip "nvim markdown preview command check (git not found)"
+    return 0
+  fi
+
+  session=$TMP_ROOT/session
+  config=$session/config
+  data=$session/data
+  mkdir -p "$config" "$data" "$session/state" "$session/cache" \
+    || fail "could not create the nvim session scratch directories"
+
+  # lazy writes its lock file into stdpath('config'), and installing plugins is
+  # exactly what this does, so the config it drives is a copy. The tracked
+  # lazy-lock.json is an input here, never an output.
+  cp -R "$NVIM_CONFIG" "$config/nvim" || fail "could not copy the nvim config"
+
+  cat >"$session/noop.vim" <<'VIM'
+function! MkdpTestNoop(url) abort
+endfunction
+let g:mkdp_browserfunc = 'MkdpTestNoop'
+VIM
+
+  cat >"$session/probe.lua" <<'LUA'
+-- `:MarkdownPreviewToggle` as the first command of the session, on a markdown
+-- buffer that was already open before it was typed. Both halves are recorded:
+-- the invocation can look fine while the command it needed no longer exists.
+-- Nothing stops the preview here; the server is a job of this nvim, so quitting
+-- takes it down. `:MarkdownPreviewStop` would not - it blocks on an rpcrequest
+-- the server never answers when no page has been opened yet.
+local out = assert(io.open(os.getenv('MKDP_PROBE_OUT'), 'w'))
+local ok = pcall(vim.cmd, 'MarkdownPreviewToggle')
+out:write(tostring(ok) .. ' ' .. tostring(vim.fn.exists(':MarkdownPreviewToggle')) .. '\n')
+out:close()
+LUA
+
+  printf '# note\n\nBody text.\n' >"$session/note.md"
+
+  env XDG_CONFIG_HOME="$config" XDG_DATA_HOME="$data" XDG_STATE_HOME="$session/state" \
+    XDG_CACHE_HOME="$session/cache" \
+    nvim --headless -c 'quitall!' >"$session/install.log" 2>&1
+
+  mkdp=$data/nvim/lazy/markdown-preview.nvim
+  if [ ! -f "$mkdp/plugin/mkdp.vim" ]; then
+    skip "nvim markdown preview command check (markdown-preview.nvim could not be installed)"
+    return 0
+  fi
+
+  env XDG_CONFIG_HOME="$config" XDG_DATA_HOME="$data" XDG_STATE_HOME="$session/state" \
+    XDG_CACHE_HOME="$session/cache" MKDP_PROBE_OUT="$session/probe.txt" \
+    nvim --headless --cmd "source $session/noop.vim" "$session/note.md" \
+      -c "luafile $session/probe.lua" -c 'quitall!' >"$session/session.log" 2>&1
+
+  if [ ! -f "$session/probe.txt" ]; then
+    fail "nvim markdown preview: the session recorded no result: $(cat "$session/session.log")"
+  fi
+  read -r outcome exists <"$session/probe.txt"
+
+  if [ "$outcome" != "true" ]; then
+    fail "nvim markdown preview: :MarkdownPreviewToggle raised an error on a markdown buffer"
+  fi
+  if [ "$exists" != "2" ]; then
+    fail "nvim markdown preview: exists(':MarkdownPreviewToggle') is $exists after the first invocation, not 2 - mkdp defines its commands buffer-locally from an autocmd, so the spec needs ft = 'markdown' to have them in a buffer that is already open"
+  fi
+
+  pass "nvim: :MarkdownPreviewToggle runs and survives as the first command of a session"
+}
+
 test_plugin_specs_are_loadable_and_pinned
 test_spec_collector_sees_every_declaration_shape
+test_preview_command_works_as_the_first_command
 
 test_summary
