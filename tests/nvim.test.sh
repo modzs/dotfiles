@@ -254,9 +254,17 @@ JSON
 #
 # Installing the plugins needs the network, which puts this in the same class as
 # tests/nixpkgs-channel.test.sh: it reports skip, never ok, when it cannot run.
+#
+# Two boundaries are deliberate. The scratch run neutralises markdown-preview's
+# `build` by handing lazy a shell that does nothing: no assertion here depends on
+# the built server - mkdp reports a missing one rather than throwing - so pulling
+# its npm dependency tree on every run would be cost with no coverage behind it.
+# And the network calls are not bounded: macOS ships no `timeout`, so capping
+# them would mean building a timer inside nvim. CI's job-level timeout is the
+# backstop, and a local run can be interrupted.
 
 test_preview_command_works_as_the_first_command() {
-  local session config data mkdp result outcome exists
+  local session config data mkdp outcome exists
 
   if ! command -v nvim >/dev/null 2>&1; then
     skip "nvim markdown preview command check (nvim not found)"
@@ -300,13 +308,20 @@ LUA
   printf '# note\n\nBody text.\n' >"$session/note.md"
 
   env XDG_CONFIG_HOME="$config" XDG_DATA_HOME="$data" XDG_STATE_HOME="$session/state" \
-    XDG_CACHE_HOME="$session/cache" \
+    XDG_CACHE_HOME="$session/cache" SHELL=/usr/bin/true \
     nvim --headless -c 'quitall!' >"$session/install.log" 2>&1
 
+  # lua/plugin.lua clones lazy.nvim before it asks lazy for anything, so its
+  # presence is this run's proof that git and the network worked. Past that
+  # point a missing markdown-preview.nvim is a defect in the spec, not an
+  # environment this check could not run in.
   mkdp=$data/nvim/lazy/markdown-preview.nvim
-  if [ ! -f "$mkdp/plugin/mkdp.vim" ]; then
-    skip "nvim markdown preview command check (markdown-preview.nvim could not be installed)"
+  if [ ! -d "$data/nvim/lazy/lazy.nvim" ]; then
+    skip "nvim markdown preview command check (lazy.nvim could not be installed)"
     return 0
+  fi
+  if [ ! -f "$mkdp/plugin/mkdp.vim" ]; then
+    fail "nvim markdown preview: lazy installed but markdown-preview.nvim did not - lua/plugins/markdown.lua no longer declares it, or declares it disabled or misnamed"
   fi
 
   env XDG_CONFIG_HOME="$config" XDG_DATA_HOME="$data" XDG_STATE_HOME="$session/state" \
