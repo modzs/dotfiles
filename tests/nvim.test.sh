@@ -274,10 +274,15 @@ end
 
 -- Naming the same plugins is not the same as running the pinned revision: a
 -- commit lazy cannot check out leaves the branch head cloned and installed, so
--- the name comparison alone would pass. Ask git what is actually there. Both
--- reads reach into lazy internals, so both are guarded: if either moves in a
--- future lazy release, say which, and let the run report an honest skip rather
--- than blame lazy for answering nothing.
+-- the name comparison alone would pass. Ask git what is actually there. Three
+-- reads reach into lazy internals - the two modules, and the `lazy.core.config`
+-- field the exemption below is built on - so all three are guarded: if any of
+-- them moves in a future lazy release, say which, and let the run report an
+-- honest skip rather than blame lazy for answering nothing. The field needs its
+-- own guard, not just the module load: a `lazy.core.config` that no longer
+-- carries `me` would leave the exemption resolving to nil, and lazy.nvim's own
+-- revision would then be compared - going red the next time upstream moves the
+-- `stable` tag, which is the exact failure the exemption exists to prevent.
 local has_git, git = pcall(require, 'lazy.manage.git')
 local has_config, lazy_config = pcall(require, 'lazy.core.config')
 local no_revisions
@@ -285,6 +290,8 @@ if not has_git then
   no_revisions = 'lazy.manage.git could not be required'
 elseif not has_config then
   no_revisions = 'lazy.core.config could not be required'
+elseif type(lazy_config.me) ~= 'string' then
+  no_revisions = 'lazy.core.config.me is not a path, so lazy.nvim could not be exempted'
 end
 if no_revisions then
   out:write('norevision ' .. no_revisions .. '\n')
@@ -296,7 +303,7 @@ end
 -- checkout step never runs for lazy itself. Comparing it would go red the day
 -- upstream moves that tag, on a change that touched nothing here. The name
 -- comparison below still covers it, in both directions.
-local lazy_dir = has_config and lazy_config.me or nil
+local lazy_dir = not no_revisions and lazy_config.me or nil
 
 local managed = {}
 local count = 0
