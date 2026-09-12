@@ -49,6 +49,14 @@ jobs:
   test:
     name: Test suite
     runs-on: macos-latest
+    # The two successful main runs since tests/nvim.test.sh landed finished this
+    # job in 2m42s and 2m07s, flake-pinned Neovim fetch and the suite's git
+    # clones included; the run before it took 2m38s. 20 minutes is roughly an
+    # order of magnitude of headroom over that, and matches the same job on the
+    # NixOS sibling. It is here to kill a clone that has hung, not to police how
+    # long a slow-but-working run takes. Without it the backstop is GitHub's
+    # six-hour default.
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
